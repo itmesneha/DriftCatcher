@@ -65,9 +65,8 @@ class DriftDetector:
         # Use quantiles as bin edges
         bins = quantiles
         
-        # Expected distribution: uniform across bins (10 bins = 10% each)
-        n_bins = len(bins) - 1
-        expected_dist = np.full(n_bins, 1.0 / n_bins)
+        # Expected distribution: actual training data distribution (not uniform)
+        expected_dist = np.array(stats['expected_dist'])
         
         # Actual distribution: bin the new data
         counts, _ = np.histogram(new_data, bins=bins)

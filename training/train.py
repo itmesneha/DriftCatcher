@@ -74,18 +74,21 @@ def compute_training_stats(df, feature_cols):
 
     for col in feature_cols:
         values = df[col].values
+        
+        # Compute quantiles for binning
+        quantiles = np.quantile(values, q=np.linspace(0, 1, 11))  # deciles
+        
+        # Compute actual distribution in training data
+        hist, _ = np.histogram(values, bins=quantiles)
+        expected_dist = (hist / hist.sum()).tolist()
 
         stats[col] = {
             "mean": float(np.mean(values)),
             "std": float(np.std(values)),
             "min": float(np.min(values)),
             "max": float(np.max(values)),
-            "quantiles": [
-                float(q) for q in np.quantile(
-                    values,
-                    q=np.linspace(0, 1, 11)  # deciles
-                )
-            ]
+            "quantiles": [float(q) for q in quantiles],
+            "expected_dist": expected_dist  # Store actual training distribution
         }
 
     return stats
