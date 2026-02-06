@@ -56,3 +56,8 @@ Prediction distribution
 Drift detection (feature mean shifts)
 
 Alert volume over time
+
+1. Detect drift (PSI) → New data distribution changed
+2. Collect & label new data → Get ground truth for recent samples
+3. Retrain on OLD + NEW data → Model learns new patterns
+4. Deploy updated model → Now handles both old and new patterns

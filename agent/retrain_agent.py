@@ -127,14 +127,29 @@ class RetrainAgent:
         
         print(f"[{timestamp}] {event_type}: {message}")
     
-    def _trigger_retrain(self):
-        """Trigger model retraining"""
-        self._log_event("RETRAIN_START", "Starting model retraining...")
+    def _trigger_retrain(self, new_data_paths: list = None):
+        """
+        Trigger model retraining
+        
+        Args:
+            new_data_paths: List of paths to new labeled data files to include in retraining
+        """
+        if new_data_paths:
+            self._log_event("RETRAIN_START", f"Starting retraining with {len(new_data_paths)} new dataset(s)...")
+        else:
+            self._log_event("RETRAIN_START", "Starting model retraining (base data only)...")
         
         try:
+            # Build command
+            cmd = ["uv", "run", "python", "training/train.py"]
+            
+            # Add new data paths if provided
+            if new_data_paths:
+                cmd.extend(["--new-data"] + new_data_paths)
+            
             # Run training script
             result = subprocess.run(
-                ["uv", "run", "python", "training/train.py"],
+                cmd,
                 capture_output=True,
                 text=True,
                 check=True
@@ -193,6 +208,12 @@ class RetrainAgent:
         
         # Detect drift
         drift_results = self.drift_detector.detect_drift(new_df)
+        
+        # Log drift to MLflow
+        try:
+            self.drift_detector.log_drift_to_mlflow(drift_results)
+        except Exception as e:
+            self._log_event("WARNING", f"Could not log drift to MLflow: {e}")
         
         # Record drift in history
         drift_history_entry = {
@@ -277,10 +298,12 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description="Automated Retraining Agent")
-    parser.add_argument('command', choices=['check', 'status'], help='Command to run')
+    parser.add_argument('command', choices=['check', 'status', 'retrain'], help='Command to run')
     parser.add_argument('--data', help='Path to new data CSV (required for check)')
+    parser.add_argument('--new-labeled-data', nargs='+', help='Path(s) to new labeled data for retraining')
     parser.add_argument('--min-retrain-hours', type=int, default=24, help='Minimum hours between retrains')
     parser.add_argument('--alert-cooldown-hours', type=int, default=6, help='Minimum hours between alerts')
+    parser.add_argument('--force', action='store_true', help='Force retrain even if in cooldown')
     
     args = parser.parse_args()
     
@@ -300,6 +323,27 @@ def main():
                 print(f"  {entry['timestamp']}: PSI={entry['overall_psi']:.4f}, "
                       f"Drifted={entry['n_drifted_features']}, "
                       f"Action={entry['action_recommended']}")
+    
+    elif args.command == 'retrain':
+        # Manual retrain with new labeled data
+        if not args.new_labeled_data:
+            print("Error: --new-labeled-data is required for retrain command")
+            print("Example: python agent/retrain_agent.py retrain --new-labeled-data data/labeled/batch1.csv data/labeled/batch2.csv")
+            sys.exit(1)
+        
+        if not args.force and not agent._can_retrain():
+            print("Error: Cannot retrain yet (in cooldown period)")
+            print("Use --force to override, or wait until cooldown expires")
+            agent.print_status()
+            sys.exit(1)
+        
+        print(f"Triggering manual retrain with {len(args.new_labeled_data)} new dataset(s)...")
+        success = agent._trigger_retrain(new_data_paths=args.new_labeled_data)
+        
+        if success:
+            print("✅ Retraining completed successfully!")
+        else:
+            print("❌ Retraining failed. Check logs for details.")
     
     elif args.command == 'check':
         if not args.data:

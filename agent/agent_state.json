@@ -1,14 +1,26 @@
 {
   "last_retrain_time": "2026-02-06T16:59:57.008746",
-  "last_alert_time": null,
+  "last_alert_time": "2026-02-06T19:27:52.013213",
   "total_retrains": 1,
-  "total_alerts": 0,
-  "total_checks": 1,
+  "total_alerts": 1,
+  "total_checks": 3,
   "drift_history": [
     {
       "timestamp": "2026-02-06T16:59:46.121008",
       "overall_psi": 5.33021048389172,
       "n_drifted_features": 78,
+      "action_recommended": "retrain"
+    },
+    {
+      "timestamp": "2026-02-06T19:27:52.012767",
+      "overall_psi": 1.5366262904467674,
+      "n_drifted_features": 60,
+      "action_recommended": "retrain"
+    },
+    {
+      "timestamp": "2026-02-06T19:43:31.299185",
+      "overall_psi": 1.5366262904467674,
+      "n_drifted_features": 60,
       "action_recommended": "retrain"
     }
   ]

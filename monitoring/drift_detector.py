@@ -5,6 +5,13 @@ import json
 import numpy as np
 import pandas as pd
 from typing import Dict, Tuple, List
+from datetime import datetime
+
+try:
+    import mlflow
+    MLFLOW_AVAILABLE = True
+except ImportError:
+    MLFLOW_AVAILABLE = False
 
 
 class DriftDetector:
@@ -138,6 +145,43 @@ class DriftDetector:
         else:
             return 'wait'
     
+    def log_drift_to_mlflow(self, drift_results: Dict, experiment_name: str = "drift_monitoring"):
+        """
+        Log drift detection results to MLflow
+        
+        Args:
+            drift_results: Drift detection results dictionary
+            experiment_name: MLflow experiment name
+        """
+        if not MLFLOW_AVAILABLE:
+            return
+        
+        try:
+            mlflow.set_experiment(experiment_name)
+            
+            with mlflow.start_run(run_name=f"drift_check_{datetime.now().strftime('%Y%m%d_%H%M%S')}"):
+                # Log overall metrics
+                mlflow.log_metric("overall_psi", drift_results['overall_psi'])
+                mlflow.log_metric("n_drifted_features", drift_results['n_drifted_features'])
+                mlflow.log_metric("total_features", drift_results['total_features'])
+                
+                # Log top 10 drifted features
+                for i, (feature, psi) in enumerate(drift_results['drifted_features'][:10]):
+                    mlflow.log_metric(f"psi_rank_{i+1}_{feature[:30]}", psi)
+                
+                # Log action as tag
+                mlflow.set_tag("action_recommended", drift_results['action'])
+                mlflow.set_tag("timestamp", datetime.now().isoformat())
+                
+                # Log feature PSI as JSON artifact
+                psi_dict = drift_results['feature_psi']
+                with open("drift_feature_psi.json", "w") as f:
+                    json.dump(psi_dict, f, indent=2)
+                mlflow.log_artifact("drift_feature_psi.json")
+                
+        except Exception as e:
+            print(f"Warning: Could not log drift to MLflow: {e}")
+    
     def print_report(self, drift_results: Dict):
         """Print drift detection report"""
         print("\n" + "="*60)
@@ -180,6 +224,10 @@ def main():
     # Detect drift
     print("Computing drift scores...")
     results = detector.detect_drift(new_df)
+    
+    # Log to MLflow
+    print("Logging to MLflow...")
+    detector.log_drift_to_mlflow(results)
     
     # Print report
     detector.print_report(results)

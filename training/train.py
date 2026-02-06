@@ -125,6 +125,8 @@ def train(df):
         n_jobs=-1
     )
 
+    mlflow.set_experiment('Model Training')
+
     with mlflow.start_run():
         model.fit(X_train, y_train)
 
@@ -176,5 +178,38 @@ def train(df):
 
 
 if __name__ == "__main__":
-    df = load_and_clean(DATA_PATH)
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Train DDoS detection model")
+    parser.add_argument(
+        '--base-data', 
+        default=DATA_PATH,
+        help='Path to base training data'
+    )
+    parser.add_argument(
+        '--new-data',
+        nargs='+',
+        help='Path(s) to new labeled data to include in retraining'
+    )
+    
+    args = parser.parse_args()
+    
+    # Load base data
+    print(f"Loading base training data from {args.base_data}...")
+    df = load_and_clean(args.base_data)
+    
+    # If retraining with new data, combine datasets
+    if args.new_data:
+        print(f"\nRetraining mode: Combining with {len(args.new_data)} new dataset(s)")
+        new_dfs = []
+        for new_path in args.new_data:
+            print(f"  Loading {new_path}...")
+            new_df = load_and_clean(new_path)
+            new_dfs.append(new_df)
+        
+        # Combine all datasets
+        df = pd.concat([df] + new_dfs, ignore_index=True)
+        print(f"\nCombined dataset shape: {df.shape}")
+        print(f"Label distribution:\n{df['Label'].value_counts()}")
+    
     train(df)
