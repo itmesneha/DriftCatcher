@@ -5,7 +5,15 @@ import numpy as np
 
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import classification_report, roc_auc_score
+from sklearn.metrics import (
+    classification_report, 
+    roc_auc_score, 
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    confusion_matrix
+)
 
 import mlflow
 import mlflow.sklearn
@@ -120,11 +128,31 @@ def train(df):
         y_pred = model.predict(X_test)
         y_prob = model.predict_proba(X_test)[:, 1]
 
+        # Calculate metrics
         auc = roc_auc_score(y_test, y_prob)
+        accuracy = accuracy_score(y_test, y_pred)
+        precision = precision_score(y_test, y_pred)
+        recall = recall_score(y_test, y_pred)
+        f1 = f1_score(y_test, y_pred)
+        
+        # Confusion matrix
+        tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
 
+        # Log parameters
         mlflow.log_param("model_type", "RandomForest")
         mlflow.log_param("n_estimators", 100)
+        mlflow.log_param("test_size", 0.2)
+        
+        # Log metrics
         mlflow.log_metric("roc_auc", auc)
+        mlflow.log_metric("accuracy", accuracy)
+        mlflow.log_metric("precision", precision)
+        mlflow.log_metric("recall", recall)
+        mlflow.log_metric("f1_score", f1)
+        mlflow.log_metric("true_positives", tp)
+        mlflow.log_metric("true_negatives", tn)
+        mlflow.log_metric("false_positives", fp)
+        mlflow.log_metric("false_negatives", fn)
 
         mlflow.sklearn.log_model(
             model,
@@ -132,8 +160,15 @@ def train(df):
             registered_model_name=MODEL_NAME
         )
 
-        print("ROC-AUC:", auc)
-        print(classification_report(y_test, y_pred))
+        print(f"ROC-AUC: {auc:.6f}")
+        print(f"Accuracy: {accuracy:.6f}")
+        print(f"Precision: {precision:.6f}")
+        print(f"Recall: {recall:.6f}")
+        print(f"F1-Score: {f1:.6f}")
+        print(f"\nConfusion Matrix:")
+        print(f"TN: {tn}, FP: {fp}")
+        print(f"FN: {fn}, TP: {tp}")
+        print("\n" + classification_report(y_test, y_pred))
 
 
 
