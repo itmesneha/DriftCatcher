@@ -354,6 +354,108 @@ async def agent_execute_plan(request: PlanRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def get_time_since_last_retrain() -> str:
+    """Get time since last model training from MLflow"""
+    try:
+        mlflow.set_experiment("Model Training")
+        runs = mlflow.search_runs(
+            order_by=["start_time DESC"],
+            max_results=1
+        )
+        if not runs.empty:
+            last_time = pd.to_datetime(runs.iloc[0]['start_time'])
+            delta = datetime.now() - last_time
+            
+            if delta.days == 0:
+                hours = delta.seconds // 3600
+                return f"{hours} hours" if hours > 0 else "< 1 hour"
+            elif delta.days == 1:
+                return "1 day"
+            elif delta.days < 7:
+                return f"{delta.days} days"
+            elif delta.days < 30:
+                weeks = delta.days // 7
+                return f"{weeks} week{'s' if weeks > 1 else ''}"
+            else:
+                months = delta.days // 30
+                return f"{months} month{'s' if months > 1 else ''}"
+    except Exception as e:
+        logger.warning(f"Could not get last retrain time from MLflow: {e}")
+    
+    return "unknown"
+
+
+def get_retraining_cost(dataset_size: int) -> str:
+    """Estimate retraining cost based on dataset size"""
+    if dataset_size < 10000:
+        return "low"
+    elif dataset_size < 100000:
+        return "medium"
+    else:
+        return "high"
+
+
+def get_current_accuracy() -> float:
+    """Get current model accuracy from performance monitor or MLflow"""
+    try:
+        # Try to get from performance monitor logs
+        perf_monitor = PerformanceMonitor()
+        log_path = Path(perf_monitor.performance_log_path)
+        
+        if log_path.exists():
+            # Read last few entries
+            with open(log_path, 'r') as f:
+                lines = f.readlines()
+                if lines:
+                    # Get most recent entry
+                    import json
+                    recent_metrics = json.loads(lines[-1])
+                    return float(recent_metrics.get('accuracy', 0.95))
+    except Exception as e:
+        logger.debug(f"Could not get accuracy from performance monitor: {e}")
+    
+    try:
+        # Fallback: try to get from MLflow Model Training experiment
+        mlflow.set_experiment("Model Training")
+        runs = mlflow.search_runs(
+            order_by=["start_time DESC"],
+            max_results=1
+        )
+        if not runs.empty and 'metrics.accuracy' in runs.columns:
+            return float(runs.iloc[0]['metrics.accuracy'])
+    except Exception as e:
+        logger.debug(f"Could not get accuracy from MLflow: {e}")
+    
+    # Default fallback
+    return 0.95
+
+
+def get_deployment_risk() -> str:
+    """Assess deployment risk based on recent model performance"""
+    try:
+        # Check if we have recent validation metrics
+        mlflow.set_experiment("Model Training")
+        runs = mlflow.search_runs(
+            order_by=["start_time DESC"],
+            max_results=1
+        )
+        
+        if not runs.empty:
+            accuracy = runs.iloc[0].get('metrics.accuracy', 0.95)
+            
+            # High accuracy = low risk
+            if accuracy >= 0.95:
+                return "low"
+            elif accuracy >= 0.90:
+                return "medium"
+            else:
+                return "high"
+    except Exception as e:
+        logger.debug(f"Could not assess deployment risk: {e}")
+    
+    return "medium"  # Conservative default
+
+
 @app.post("/agent/digital-twin")
 async def digital_twin_simulation(file: UploadFile = File(...)):
     """
@@ -372,34 +474,46 @@ async def digital_twin_simulation(file: UploadFile = File(...)):
         
         logger.info(f"🎭 Digital Twin: Simulating on {len(df)} samples")
         
+        # Save uploaded data for retraining
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        new_data_path = f"data/uploads/simulation_{timestamp}.csv"
+        os.makedirs("data/uploads", exist_ok=True)
+        df.to_csv(new_data_path, index=False)
+        logger.info(f"Saved uploaded data to {new_data_path}")
+        
         # Step 1: Drift detection (logs to drift_monitoring experiment)
         logger.info("Step 1: Running drift detection...")
         drift_results = drift_detector.detect_drift(df)
         drift_detector.log_drift_to_mlflow(drift_results)
         
-        # Step 2: Reasoning engine decision (logs to agentic_reasoning experiment)
-        logger.info("Step 2: Consulting reasoning engine...")
+        # Step 2: Build dynamic context from system state
+        logger.info("Step 2: Gathering operational context...")
         context = {
-            "time_since_last_retrain": "7 days",
-            "retraining_cost": "medium",
-            "deployment_risk": "low",
-            "current_accuracy": 0.95,
+            "time_since_last_retrain": get_time_since_last_retrain(),
+            "retraining_cost": get_retraining_cost(len(df)),
+            "deployment_risk": get_deployment_risk(),
+            "current_accuracy": get_current_accuracy(),
             "simulation": True
         }
+        logger.info(f"Context: {context}")
+        
+        # Step 3: Reasoning engine decision (logs to agentic_reasoning experiment)
+        logger.info("Step 3: Consulting reasoning engine...")
         decision = reasoning_engine.reason_about_action(drift_results, context)
         
-        # Step 3: Create and execute plan if needed (logs to agentic_planning experiment)
+        # Step 4: Create and execute plan if needed (logs to agentic_planning experiment)
         plan = None
         execution_results = None
         action = decision.get('action', 'MONITOR').upper()  # Normalize to uppercase
         
         if action in ['RETRAIN', 'RETRAIN_URGENT']:
-            logger.info(f"Step 3: Creating execution plan for action '{action}'...")
+            logger.info(f"Step 4: Creating execution plan for action '{action}'...")
             
+            # Use DVC-tracked baseline for all retraining
             plan_context = {
-                'latest_data_path': f'simulation_data_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv',
-                'base_data_path': 'data/raw/baseline.csv',
-                'holdout_path': 'data/holdout.csv',
+                'latest_data_path': new_data_path,  # Use the saved uploaded CSV
+                'base_data_path': 'data/baseline.csv',  # DVC-tracked baseline
+                'holdout_path': 'data/processed/holdout.csv',
                 'target_accuracy': 0.95,
                 'urgency': 'high' if action == 'RETRAIN_URGENT' else 'normal'
             }
@@ -407,9 +521,9 @@ async def digital_twin_simulation(file: UploadFile = File(...)):
             # Create plan (logs plan creation to MLflow)
             plan_steps = planning_agent.create_plan("maintain_accuracy_above_0.95", plan_context)
             
-            # Execute plan in dry-run mode
-            logger.info("Step 4: Executing plan (dry run)...")
-            execution_results = planning_agent.execute_plan(plan_steps, dry_run=True)
+            # Execute plan for REAL (not dry run)
+            logger.info("Step 5: Executing plan...")
+            execution_results = planning_agent.execute_plan(plan_steps, dry_run=False)
             
             # Serialize plan for response
             plan = [

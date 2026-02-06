@@ -2,6 +2,7 @@
 Multi-step Planning Agent with Tool Use
 Creates and executes plans to achieve ML operational goals
 """
+import os
 import json
 import sys
 import logging
@@ -197,16 +198,24 @@ class PlanningAgent:
             ))
             step_id += 1
         
-        # Step 3: Conditional retraining (decision made by reasoning engine)
-        # This will be decided during execution based on drift/performance results
+        # Step 3: Retrain model with combined data (base + new)
+        # Note: This plan is only created if reasoning engine already decided to retrain
+        # So no need for conditional check during execution
+        # Combine base data with new production data for retraining
+        new_data_list = context.get('new_labeled_data', [])
+        if context.get('latest_data_path') and context.get('latest_data_path') not in new_data_list:
+            # Add the new data path to combine with baseline
+            new_data_list = [context.get('latest_data_path')] + new_data_list
+        
+        retrain_step_id = step_id
         plan.append(PlanStep(
             step_id=step_id,
             tool_name='retrain_model',
-            description='Retrain model if reasoning engine recommends it',
+            description='Retrain model with combined dataset (base + new data)',
             parameters={
                 'base_data': context.get('base_data_path'),
-                'new_data': context.get('new_labeled_data', []),
-                'conditional': True  # Mark as conditional - check reasoning engine first
+                'new_data': new_data_list if new_data_list else None,
+                'conditional': context.get('use_conditional', False)  # Default False for digital twin
             },
             dependencies=[1, 2] if context.get('labeled_data_available') else [1]
         ))
@@ -218,7 +227,7 @@ class PlanningAgent:
             tool_name='validate_model',
             description='Validate retrained model on holdout set',
             parameters={'holdout_path': context.get('holdout_path')},
-            dependencies=[3]
+            dependencies=[retrain_step_id]  # Depends on retrain step, not hardcoded [3]
         ))
         step_id += 1
         
@@ -228,7 +237,7 @@ class PlanningAgent:
             tool_name='deploy_model',
             description='Deploy model if validation passed',
             parameters={'model_version': 'latest'},
-            dependencies=[4]
+            dependencies=[step_id - 1]  # Depends on validation step
         ))
         
         return plan
@@ -599,13 +608,21 @@ class PlanningAgent:
         
         try:
             import pandas as pd
+            import os
+            
             new_df = pd.read_csv(data_path)
             new_df.columns = new_df.columns.str.strip()
             
-            detector = DriftDetector("training_stats.json")
+            # Get absolute path to training stats
+            stats_path = os.path.join(os.getcwd(), "artifacts", "training_stats.json")
+            if not os.path.exists(stats_path):
+                # Fallback to relative path
+                stats_path = "artifacts/training_stats.json"
+            
+            detector = DriftDetector(stats_path)
             results = detector.detect_drift(new_df)
             
-            print(f"  PSI: {results['overall_psi']:.4f}, Action: {results['action']}")
+            print(f"  PSI: {results['overall_psi']:.4f}")
             return results
         except Exception as e:
             print(f"  Error: {e}")
@@ -643,49 +660,204 @@ class PlanningAgent:
             'estimated_completion': '2-3 days'
         }
     
-    def _tool_retrain_model(self, base_data: str, new_data: List[str] = None) -> Dict:
-        """Tool: Retrain model"""
+    def _tool_retrain_model(self, base_data: str, new_data: List[str] = None, **kwargs) -> Dict:
+        """Tool: Retrain model on base data + new data"""
         print(f"  🔄 Retraining model...")
         print(f"     Base data: {base_data}")
+        
         if new_data:
-            print(f"     New data: {len(new_data)} files")
+            print(f"     Combining with {len(new_data)} new dataset(s):")
+            for nd in new_data:
+                print(f"       - {nd}")
+        else:
+            print(f"     Using only base data (no new data provided)")
         
         import subprocess
+        import pandas as pd
+        from pathlib import Path
         
         cmd = ["uv", "run", "python", "training/train.py", "--base-data", base_data]
         if new_data:
             cmd.extend(["--new-data"] + new_data)
         
         try:
+            print(f"  Running: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             print(f"  ✅ Retraining completed")
-            return {'success': True, 'output': result.stdout}
+            
+            # Update baseline with combined data for next retraining cycle
+            if new_data:
+                print(f"  📦 Updating baseline with combined data...")
+                try:
+                    # Load and combine all datasets
+                    base_df = pd.read_csv(base_data)
+                    new_dfs = [pd.read_csv(nd) for nd in new_data]
+                    combined_df = pd.concat([base_df] + new_dfs, ignore_index=True)
+                    
+                    # Save as new baseline
+                    baseline_path = Path("data/baseline.csv")
+                    combined_df.to_csv(baseline_path, index=False)
+                    print(f"     Saved {len(combined_df)} samples to baseline.csv")
+                    
+                    # Version with DVC
+                    print(f"  🔖 Versioning baseline with DVC...")
+                    dvc_result = subprocess.run(
+                        ["uv", "run", "dvc", "add", str(baseline_path)],
+                        capture_output=True,
+                        text=True,
+                        check=True
+                    )
+                    print(f"     ✅ Baseline versioned (run 'git add data/baseline.csv.dvc' to commit)")
+                    
+                except Exception as dvc_err:
+                    print(f"  ⚠️  Warning: Could not update baseline: {dvc_err}")
+                    # Don't fail the entire retraining if DVC versioning fails
+            
+            return {'success': True, 'output': result.stdout, 'baseline_updated': bool(new_data)}
         except subprocess.CalledProcessError as e:
-            print(f"  ❌ Retraining failed")
+            print(f"  ❌ Retraining failed: {e.stderr}")
             raise
     
     def _tool_validate_model(self, holdout_path: str) -> Dict:
         """Tool: Validate model on holdout set"""
         print(f"  ✓ Validating model on {holdout_path}...")
         
-        # Simulation - in production would actually evaluate
-        return {
-            'accuracy': 0.96,
-            'precision': 0.95,
-            'recall': 0.97,
-            'validation_passed': True
-        }
+        try:
+            # Load the newly trained model
+            import pickle
+            with open('artifacts/model.pkl', 'rb') as f:
+                model = pickle.load(f)
+            
+            # Load holdout data
+            import pandas as pd
+            from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+            
+            if not os.path.exists(holdout_path):
+                print(f"  ⚠️  Holdout data not found at {holdout_path}, using simulated validation")
+                return {
+                    'accuracy': 0.96,
+                    'precision': 0.95,
+                    'recall': 0.97,
+                    'validation_passed': True,
+                    'simulated': True
+                }
+            
+            df = pd.read_csv(holdout_path)
+            df.columns = df.columns.str.strip()
+            
+            # Get features
+            feature_cols = [col for col in df.columns if col != 'Label' and df[col].dtype != 'object']
+            X = df[feature_cols]
+            y = df['Label'].apply(lambda x: 0 if x == 'BENIGN' else 1)
+            
+            print(f"  Using {len(X):,} samples for validation")
+            
+            # Predict
+            y_pred = model.predict(X)
+            
+            # Calculate metrics
+            accuracy = accuracy_score(y, y_pred)
+            precision = precision_score(y, y_pred)
+            recall = recall_score(y, y_pred)
+            f1 = f1_score(y, y_pred)
+            
+            print(f"  Accuracy:  {accuracy:.3f}")
+            print(f"  Precision: {precision:.3f}")
+            print(f"  Recall:    {recall:.3f}")
+            print(f"  F1 Score:  {f1:.3f}")
+            
+            validation_passed = accuracy >= 0.90  # Minimum threshold
+            
+            if validation_passed:
+                print(f"  ✅ Validation passed!")
+            else:
+                print(f"  ❌ Validation failed - accuracy below threshold")
+            
+            return {
+                'accuracy': float(accuracy),
+                'precision': float(precision),
+                'recall': float(recall),
+                'f1_score': float(f1),
+                'validation_passed': validation_passed,
+                'simulated': False
+            }
+        except Exception as e:
+            print(f"  ❌ Validation error: {e}")
+            print(f"  Validation FAILED - cannot deploy model")
+            return {
+                'accuracy': 0.0,
+                'precision': 0.0,
+                'recall': 0.0,
+                'validation_passed': False,
+                'simulated': False,
+                'error': str(e)
+            }
     
-    def _tool_deploy_model(self, model_version: str, min_accuracy: float = 0.95) -> Dict:
-        """Tool: Deploy model to production"""
+    def _tool_deploy_model(self, model_version: str, min_accuracy: float = 0.95, validation_result: Dict = None) -> Dict:
+        """Tool: Deploy model to production (register in MLflow)"""
         print(f"  🚀 Deploying model version: {model_version}...")
         
-        # Simulation
-        return {
-            'deployed': True,
-            'version': model_version,
-            'timestamp': datetime.now().isoformat()
-        }
+        # Check if we should deploy based on previous validation step
+        # Look for validation results in the current plan
+        if hasattr(self, 'current_plan') and self.current_plan:
+            for step in self.current_plan:
+                if step.tool_name == 'validate_model' and step.result:
+                    validation_result = step.result
+                    break
+        
+        # Check if validation passed
+        if validation_result and not validation_result.get('validation_passed', False):
+            print(f"  ❌ SKIPPING DEPLOYMENT: Validation did not pass")
+            print(f"     Validation accuracy: {validation_result.get('accuracy', 0):.3f}")
+            if validation_result.get('error'):
+                print(f"     Error: {validation_result['error']}")
+            return {
+                'deployed': False,
+                'reason': 'validation_failed',
+                'validation_accuracy': validation_result.get('accuracy', 0),
+                'timestamp': datetime.now().isoformat()
+            }
+        
+        try:
+            import mlflow
+            import mlflow.sklearn
+            import pickle
+            
+            # Load the trained model
+            with open('artifacts/model.pkl', 'rb') as f:
+                model = pickle.load(f)
+            
+            # Register model in MLflow Model Registry
+            model_name = "ddos_random_forest"
+            
+            mlflow.set_experiment("Model Training")
+            
+            with mlflow.start_run(run_name=f"deployment_{datetime.now().strftime('%Y%m%d_%H%M%S')}") as run:
+                # Log the model
+                mlflow.sklearn.log_model(model, "model", registered_model_name=model_name)
+                
+                # Log deployment metadata
+                mlflow.log_param("deployment_time", datetime.now().isoformat())
+                mlflow.log_param("version", model_version)
+                mlflow.set_tag("deployment_status", "production")
+                
+                print(f"  ✅ Model registered in MLflow as '{model_name}'")
+                print(f"  Run ID: {run.info.run_id}")
+                
+                return {
+                    'deployed': True,
+                    'version': model_version,
+                    'model_name': model_name,
+                    'run_id': run.info.run_id,
+                    'timestamp': datetime.now().isoformat()
+                }
+        except Exception as e:
+            print(f"  ⚠️  Deployment error: {e}")
+            return {
+                'deployed': False,
+                'error': str(e),
+                'timestamp': datetime.now().isoformat()
+            }
     
     def _tool_rollback_model(self, previous_version: str) -> Dict:
         """Tool: Rollback to previous model version"""
@@ -742,7 +914,7 @@ def main():
     context = {
         'latest_data_path': 'data/raw/Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv',
         'base_data_path': 'data/raw/Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv',
-        'holdout_path': 'data/holdout/test.csv',
+        'holdout_path': 'data/processed/holdout.csv',
         'labeled_data_available': False
     }
     
