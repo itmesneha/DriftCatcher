@@ -1,0 +1,43 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+.env
+
+# MLflow
+mlruns/
+mlartifacts/
+mlflow.db
+
+# Data
+data/raw/
+data/processed/
+
+# Artifacts and outputs
+artifacts/
+training_stats.json
+*.pkl
+*.joblib
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
+
+# UV lock file (optional - some prefer to commit this)
+# uv.lock
+
+# dvc
+.dvc/config.local
+.dvc/tmp
+.dvc/cache
+
+
+
