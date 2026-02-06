@@ -18,6 +18,7 @@ mlflow.db
 # Data
 data/raw/
 data/processed/
+*.csv
 
 # Artifacts and outputs
 artifacts/
@@ -27,6 +28,8 @@ training_stats.json
 
 # Logs
 *.log
+agent/logs/
+monitoring/logs/
 
 # macOS
 .DS_Store

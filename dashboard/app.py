@@ -494,9 +494,13 @@ with tab3:
             reasoning = agent_status.get("reasoning_engine", {})
             summary = reasoning.get("learning_summary", {})
             
+            # Get total decisions from MLflow instead of in-memory counter
+            reasoning_runs = get_mlflow_runs("agentic_reasoning", limit=1000)
+            total_decisions = len(reasoning_runs)
+            
             metric_col1, metric_col2 = st.columns(2)
             with metric_col1:
-                st.metric("Total Decisions", summary.get("total_decisions", 0))
+                st.metric("Total Decisions", total_decisions)
             with metric_col2:
                 st.metric("LLM Enabled", "✅" if reasoning.get("use_llm") else "❌")
             
@@ -606,7 +610,7 @@ with tab3:
 
 # Tab 4: Digital Twin Simulator
 with tab4:
-    st.header("🎭 Digital Twin Simulator")
+    st.header("Digital Twin Simulator")
     st.markdown("**Upload CSV data to simulate complete agent decision flow**")
     st.markdown("Flow: Drift Detection → Reasoning Engine → Planning Agent")
     
@@ -630,7 +634,7 @@ with tab4:
             # Reset file pointer
             sim_file.seek(0)
             
-            if st.button("🎭 Run Digital Twin Simulation", type="primary", key="run_sim_btn"):
+            if st.button("Run Digital Twin Simulation", type="primary", key="run_sim_btn"):
                 st.info("🔄 Starting simulation...")
                 
                 with st.spinner("Running complete simulation flow..."):
@@ -706,50 +710,136 @@ with tab4:
                     for key, value in context.items():
                         st.markdown(f"- **{key}**: {value}")
             
-            # Step 3: Planning
-            st.markdown("### 3️⃣ Planning")
+            # Step 3: Planning & Execution
+            st.markdown("### 3️⃣ Plan Execution")
             planning = steps.get("3_planning", {})
+            execution = steps.get("4_execution", {})
             plan = planning.get("plan_details")
             
             if planning.get("plan_created") and plan:
-                st.info(f"📋 Plan created with {planning.get('total_steps', 0)} steps")
+                total_steps = planning.get('total_steps', 0)
                 
+                # Get execution results - check multiple possible locations
+                exec_results = execution.get("results", {})
+                if isinstance(exec_results, dict):
+                    exec_results = exec_results.get("step_results", [])
+                elif not isinstance(exec_results, list):
+                    exec_results = []
+                
+                st.markdown(f"📋 **Plan:** {total_steps} steps")
+                
+                # Display each step with its execution result
                 for i, step in enumerate(plan, 1):
-                    status = step.get('status', 'unknown')
-                    status_emoji = {
-                        'pending': '⏳',
-                        'completed': '✅',
-                        'failed': '❌',
-                        'in_progress': '⚙️'
-                    }.get(status, '❓')
+                    tool_name = step.get('tool_name', 'unknown')
+                    description = step.get('description', 'Unknown')
                     
-                    with st.expander(f"{status_emoji} Step {i}: {step.get('description', 'Unknown')}"):
-                        st.markdown(f"**Tool:** `{step.get('tool_name', 'Unknown')}`")
-                        st.markdown(f"**Description:** {step.get('description', 'N/A')}")
-                        st.markdown(f"**Status:** {status}")
-                        deps = step.get('dependencies', [])
-                        if deps:
-                            st.markdown(f"**Dependencies:** Steps {', '.join(map(str, deps))}")
+                    # Get execution result for this step
+                    step_result = None
+                    if exec_results:
+                        for res in exec_results:
+                            if isinstance(res, dict) and res.get('step_id') == i:
+                                step_result = res
+                                break
+                    
+                    # Determine status and display
+                    if step_result:
+                        status = step_result.get('status', 'unknown')
+                        result_data = step_result.get('result', {})
+                        error = step_result.get('error')
+                        
+                        # Special handling for validation step
+                        if tool_name == 'validate_model' and isinstance(result_data, dict):
+                            validation_passed = result_data.get('validation_passed', False)
+                            accuracy = result_data.get('accuracy', 0)
+                            
+                            if validation_passed:
+                                status_emoji = '✅'
+                                status_color = 'success'
+                            else:
+                                status_emoji = '❌'
+                                status_color = 'error'
+                            
+                            with st.expander(f"{status_emoji} Step {i}: {description}"):
+                                if validation_passed:
+                                    st.success(f"✅ Validation passed with {accuracy:.1%} accuracy")
+                                else:
+                                    st.error(f"❌ Validation failed - Accuracy: {accuracy:.1%}")
+                                
+                                st.markdown(f"**Metrics:**")
+                                st.markdown(f"- Accuracy: {result_data.get('accuracy', 0):.3f}")
+                                st.markdown(f"- Precision: {result_data.get('precision', 0):.3f}")
+                                st.markdown(f"- Recall: {result_data.get('recall', 0):.3f}")
+                                st.markdown(f"- F1 Score: {result_data.get('f1_score', 0):.3f}")
+                                
+                                if result_data.get('error'):
+                                    st.warning(f"⚠️ Error: {result_data['error']}")
+                        
+                        # Special handling for deployment step
+                        elif tool_name == 'deploy_model' and isinstance(result_data, dict):
+                            deployed = result_data.get('deployed', False)
+                            
+                            if deployed:
+                                status_emoji = '✅'
+                                with st.expander(f"{status_emoji} Step {i}: {description}"):
+                                    st.success(f"✅ Model deployed successfully")
+                                    st.markdown(f"**Model:** {result_data.get('model_name', 'Unknown')}")
+                                    st.markdown(f"**Run ID:** `{result_data.get('run_id', 'N/A')[:16]}...`")
+                            else:
+                                status_emoji = '❌'
+                                with st.expander(f"{status_emoji} Step {i}: {description}"):
+                                    st.error(f"❌ Deployment blocked")
+                                    reason = result_data.get('reason', 'unknown')
+                                    if reason == 'validation_failed':
+                                        st.warning(f"⚠️ Validation did not pass - cannot deploy")
+                                        val_acc = result_data.get('validation_accuracy', 0)
+                                        st.markdown(f"Validation accuracy: {val_acc:.1%}")
+                                    elif result_data.get('error'):
+                                        st.warning(f"Error: {result_data['error']}")
+                        
+                        # Special handling for retrain step
+                        elif tool_name == 'retrain_model' and isinstance(result_data, dict):
+                            success = result_data.get('success', False)
+                            status_emoji = '✅' if success else '❌'
+                            
+                            with st.expander(f"{status_emoji} Step {i}: {description}"):
+                                if success:
+                                    st.success("✅ Model retrained successfully")
+                                else:
+                                    st.error("❌ Retraining failed")
+                                    if error:
+                                        st.code(str(error)[:200])
+                        
+                        # Generic handling for other steps
+                        else:
+                            status_emoji = {
+                                'completed': '✅',
+                                'failed': '❌',
+                                'blocked': '🚫',
+                                'in_progress': '⚙️'
+                            }.get(status, '❓')
+                            
+                            with st.expander(f"{status_emoji} Step {i}: {description}"):
+                                st.markdown(f"**Tool:** `{tool_name}`")
+                                st.markdown(f"**Status:** {status}")
+                                
+                                if error:
+                                    st.error(f"Error: {error}")
+                                elif status == 'blocked':
+                                    st.warning("⚠️ Blocked - dependencies not met")
+                                elif isinstance(result_data, dict) and result_data:
+                                    # Show only non-verbose fields
+                                    display_data = {k: v for k, v in result_data.items() 
+                                                   if k not in ['output', 'raw_response'] and len(str(v)) < 100}
+                                    if display_data:
+                                        st.json(display_data)
+                    else:
+                        # No execution result yet
+                        status_emoji = '⏳'
+                        with st.expander(f"{status_emoji} Step {i}: {description}"):
+                            st.markdown(f"**Tool:** `{tool_name}`")
+                            st.info("Pending execution")
             else:
                 st.success("✅ No plan needed - monitoring only")
-            
-            # Step 4: Execution
-            st.markdown("### 4️⃣ Execution")
-            execution = steps.get("4_execution", {})
-            
-            if execution.get("executed"):
-                st.info("🎭 **Dry Run Mode** - No actual changes made")
-                results = execution.get("results", {})
-                if results:
-                    for step_id, result in results.items():
-                        # Result might be a string or dict
-                        if isinstance(result, dict):
-                            status = result.get('status', 'unknown')
-                        else:
-                            status = str(result)
-                        st.markdown(f"- **{step_id}**: {status}")
-            else:
-                st.info("No execution needed for MONITOR action")
             
             # Clear button
             st.markdown("---")
