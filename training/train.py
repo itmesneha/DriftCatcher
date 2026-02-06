@@ -1,5 +1,6 @@
 import os
 import json
+import pickle
 import pandas as pd
 import numpy as np
 
@@ -165,6 +166,12 @@ def train(df):
             registered_model_name=MODEL_NAME
         )
 
+        # Save model to artifacts/ for easy API loading
+        model_path = os.path.join(ARTIFACT_DIR, "model.pkl")
+        with open(model_path, "wb") as f:
+            pickle.dump(model, f)
+        print(f"\n✅ Model saved to {model_path}")
+
         print(f"ROC-AUC: {auc:.6f}")
         print(f"Accuracy: {accuracy:.6f}")
         print(f"Precision: {precision:.6f}")
@@ -174,6 +181,8 @@ def train(df):
         print(f"TN: {tn}, FP: {fp}")
         print(f"FN: {fn}, TP: {tp}")
         print("\n" + classification_report(y_test, y_pred))
+    
+    return model
 
 
 

@@ -12,8 +12,11 @@ dependencies = [
     "mlflow>=2.18",
     "numpy>=2.4.2",
     "pandas<3.0",
+    "plotly>=6.5.2",
     "protobuf>=3.20,<5",
     "python-multipart>=0.0.22",
     "scikit-learn>=1.8.0",
+    "streamlit>=1.54.0",
     "uvicorn>=0.40.0",
+    "watchdog>=6.0.0",
 ]

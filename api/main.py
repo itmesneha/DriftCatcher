@@ -46,9 +46,11 @@ app.add_middleware(
 
 # Initialize components
 MODEL_PATH = "artifacts/model.pkl"
+MODEL_NAME = "ddos_random_forest"
 TRAINING_STATS_PATH = "artifacts/training_stats.json"
 
 model = None
+current_model_version = None
 drift_detector = None
 reasoning_engine = None
 planning_agent = None
@@ -72,8 +74,47 @@ class ReasoningRequest(BaseModel):
     drift_results: Dict
     context: Dict
 
+def load_model_from_file(path: str = MODEL_PATH):
+    """Load model from pickle file"""
+    global model, current_model_version
+    
+    if os.path.exists(path):
+        with open(path, 'rb') as f:
+            model = pickle.load(f)
+        current_model_version = f"file:{path}"
+        logger.info(f"✅ Model loaded from {path}")
+        return True
+    else:
+        logger.warning(f"⚠️  No model found at {path}")
+        return False
 
-# Startup event
+
+def load_model_from_mlflow(model_name: str = MODEL_NAME, version: str = "latest"):
+    """Load model from MLflow Model Registry"""
+    global model, current_model_version
+    
+    try:
+        if version == "latest":
+            # Get latest version number
+            client = mlflow.tracking.MlflowClient()
+            versions = client.search_model_versions(f"name='{model_name}'")
+            if not versions:
+                logger.warning(f"⚠️  No versions found for model {model_name}")
+                return False
+            latest_version = max([int(v.version) for v in versions])
+            model_uri = f"models:/{model_name}/{latest_version}"
+        else:
+            model_uri = f"models:/{model_name}/{version}"
+        
+        model = mlflow.sklearn.load_model(model_uri)
+        current_model_version = model_uri
+        logger.info(f"✅ Model loaded from MLflow: {model_uri}")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Failed to load model from MLflow: {e}")
+        return False
+
+
 @app.on_event("startup")
 async def startup_event():
     """Load model and initialize components on startup"""
@@ -81,13 +122,11 @@ async def startup_event():
     
     logger.info("🚀 Starting DriftCatcher API...")
     
-    # Load model
-    if os.path.exists(MODEL_PATH):
-        with open(MODEL_PATH, 'rb') as f:
-            model = pickle.load(f)
-        logger.info(f"✅ Model loaded from {MODEL_PATH}")
-    else:
-        logger.warning(f"⚠️  No model found at {MODEL_PATH}")
+    # Try loading model from file first (fastest)
+    if not load_model_from_file():
+        # Fallback to MLflow if file doesn't exist
+        logger.info("Trying to load from MLflow...")
+        load_model_from_mlflow()
     
     # Initialize drift detector
     if os.path.exists(TRAINING_STATS_PATH):
@@ -113,6 +152,7 @@ async def root():
         "service": "DriftCatcher API",
         "version": "1.0.0",
         "model_loaded": model is not None,
+        "model_version": current_model_version,
         "drift_detector_ready": drift_detector is not None,
         "agents_ready": reasoning_engine is not None and planning_agent is not None
     }
@@ -318,7 +358,8 @@ async def agent_execute_plan(request: PlanRequest):
 async def digital_twin_simulation(file: UploadFile = File(...)):
     """
     Digital twin simulation: Upload CSV and see what agent would decide
-    Complete flow: drift check → reasoning → planning
+    Complete flow: drift check → reasoning → planning → execution (dry run)
+    Each agent logs to its own MLflow experiment automatically
     """
     if not all([drift_detector, reasoning_engine, planning_agent]):
         raise HTTPException(status_code=503, detail="Agents not fully initialized")
@@ -331,45 +372,97 @@ async def digital_twin_simulation(file: UploadFile = File(...)):
         
         logger.info(f"🎭 Digital Twin: Simulating on {len(df)} samples")
         
-        # Step 1: Drift detection
+        # Step 1: Drift detection (logs to drift_monitoring experiment)
+        logger.info("Step 1: Running drift detection...")
         drift_results = drift_detector.detect_drift(df)
+        drift_detector.log_drift_to_mlflow(drift_results)
         
-        # Step 2: Reasoning engine decision
+        # Step 2: Reasoning engine decision (logs to agentic_reasoning experiment)
+        logger.info("Step 2: Consulting reasoning engine...")
         context = {
             "time_since_last_retrain": "7 days",
             "retraining_cost": "medium",
-            "deployment_risk": "low"
+            "deployment_risk": "low",
+            "current_accuracy": 0.95,
+            "simulation": True
         }
         decision = reasoning_engine.reason_about_action(drift_results, context)
         
-        # Step 3: Create plan if needed
+        # Step 3: Create and execute plan if needed (logs to agentic_planning experiment)
         plan = None
-        if decision['action'] in ['RETRAIN', 'RETRAIN_URGENT']:
+        execution_results = None
+        action = decision.get('action', 'MONITOR').upper()  # Normalize to uppercase
+        
+        if action in ['RETRAIN', 'RETRAIN_URGENT']:
+            logger.info(f"Step 3: Creating execution plan for action '{action}'...")
+            
             plan_context = {
-                'latest_data_path': 'uploaded_data',
+                'latest_data_path': f'simulation_data_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv',
                 'base_data_path': 'data/raw/baseline.csv',
-                'holdout_path': 'data/holdout.csv'
+                'holdout_path': 'data/holdout.csv',
+                'target_accuracy': 0.95,
+                'urgency': 'high' if action == 'RETRAIN_URGENT' else 'normal'
             }
+            
+            # Create plan (logs plan creation to MLflow)
             plan_steps = planning_agent.create_plan("maintain_accuracy_above_0.95", plan_context)
+            
+            # Execute plan in dry-run mode
+            logger.info("Step 4: Executing plan (dry run)...")
+            execution_results = planning_agent.execute_plan(plan_steps, dry_run=True)
+            
+            # Serialize plan for response
             plan = [
                 {
                     "step_id": step.step_id,
                     "tool_name": step.tool_name,
                     "description": step.description,
-                    "dependencies": step.dependencies
+                    "dependencies": step.dependencies,
+                    "status": step.status.value if hasattr(step.status, 'value') else str(step.status)
                 }
                 for step in plan_steps
             ]
+        else:
+            logger.info(f"Step 3: Action is '{action}', no plan needed")
+        
+        # Create comprehensive summary
+        simulation_summary = {
+            "data_samples": len(df),
+            "timestamp": datetime.now().isoformat(),
+            "steps": {
+                "1_drift_detection": {
+                    "overall_psi": drift_results['overall_psi'],
+                    "n_drifted_features": drift_results['n_drifted_features'],
+                    "total_features": drift_results['total_features'],
+                    "top_drifted_features": list(drift_results['feature_psi'].items())[:5]
+                },
+                "2_reasoning": {
+                    "action": decision.get('action', 'MONITOR'),
+                    "reasoning": decision.get('reasoning', 'N/A'),
+                    "confidence": decision.get('confidence', 0.0),
+                    "context_considered": context
+                },
+                "3_planning": {
+                    "plan_created": plan is not None,
+                    "total_steps": len(plan) if plan else 0,
+                    "plan_details": plan
+                },
+                "4_execution": {
+                    "executed": execution_results is not None,
+                    "dry_run": True,
+                    "results": execution_results
+                }
+            }
+        }
+        
+        logger.info("✅ Digital twin simulation complete")
         
         return {
-            "simulation": {
-                "data_samples": len(df),
-                "drift_detected": drift_results,
-                "agent_decision": decision,
-                "recommended_plan": plan
-            },
-            "timestamp": datetime.now().isoformat()
+            "status": "success",
+            "simulation": simulation_summary,
+            "message": f"Simulation complete: {action} recommended based on PSI={drift_results['overall_psi']:.3f}"
         }
+        
     except Exception as e:
         logger.error(f"Digital twin simulation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -414,9 +507,25 @@ async def get_runs(experiment_name: str, limit: int = 10):
             order_by=["start_time DESC"]
         )
         
+        # Convert to dict and replace NaN/inf with None for JSON serialization
+        import numpy as np
+        import math
+        runs_dict = runs.to_dict(orient='records')
+        
+        # Clean up NaN/inf values
+        def clean_value(v):
+            if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+                return None
+            return v
+        
+        runs_dict = [
+            {k: clean_value(v) for k, v in run.items()}
+            for run in runs_dict
+        ]
+        
         return {
             "experiment": experiment_name,
-            "runs": runs.to_dict(orient='records')
+            "runs": runs_dict
         }
     except HTTPException:
         raise
@@ -448,6 +557,50 @@ async def agent_status():
         }
     except Exception as e:
         logger.error(f"Status error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Model management endpoints
+@app.get("/model/info")
+async def model_info():
+    """Get current model information"""
+    if model is None:
+        raise HTTPException(status_code=503, detail="No model loaded")
+    
+    return {
+        "model_loaded": True,
+        "version": current_model_version,
+        "model_type": type(model).__name__
+    }
+
+
+@app.post("/model/reload")
+async def reload_model(source: str = "file", version: str = "latest"):
+    """
+    Reload model from file or MLflow
+    
+    Args:
+        source: 'file' or 'mlflow'
+        version: version number or 'latest' (only for MLflow)
+    """
+    try:
+        if source == "file":
+            success = load_model_from_file()
+        elif source == "mlflow":
+            success = load_model_from_mlflow(version=version)
+        else:
+            raise HTTPException(status_code=400, detail="Invalid source. Use 'file' or 'mlflow'")
+        
+        if success:
+            return {
+                "status": "success",
+                "message": f"Model reloaded from {source}",
+                "version": current_model_version
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to reload model")
+    except Exception as e:
+        logger.error(f"Reload error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -145,6 +145,10 @@ Streamlit - "Upload this PortScan CSV"
 Digital Twin - "Agent reasons, recommends RETRAIN"
 Show logs - "All reasoning tracked in MLflow"
 
+Drift Detector → Reports metrics only (PSI scores, drifted features)
+Reasoning Engine → Sole decision maker (considers context, uses LLM)
+Planning Agent → Executes the decision with multi-step plans
+
 locally:
 # localhost:5000 - MLflow UI
 # localhost:8000 - FastAPI

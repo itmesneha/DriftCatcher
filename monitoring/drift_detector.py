@@ -100,8 +100,13 @@ class DriftDetector:
             if feature not in new_df.columns:
                 continue
             
-            # Get clean numeric data
-            feature_data = new_df[feature].replace([np.inf, -np.inf], np.nan).dropna().values
+            # Get clean numeric data - force conversion to numeric
+            try:
+                feature_data = pd.to_numeric(new_df[feature], errors='coerce')
+                feature_data = feature_data.replace([np.inf, -np.inf], np.nan).dropna().values
+            except:
+                # Skip non-numeric features
+                continue
             
             if len(feature_data) == 0:
                 continue
@@ -115,35 +120,13 @@ class DriftDetector:
         # Aggregate drift score (mean PSI across all features)
         overall_psi = np.mean(list(psi_scores.values()))
         
-        # Determine action
-        action = self._determine_action(overall_psi, len(drifted_features))
-        
         return {
             'overall_psi': overall_psi,
             'feature_psi': psi_scores,
             'drifted_features': sorted(drifted_features, key=lambda x: x[1], reverse=True),
-            'action': action,
             'n_drifted_features': len(drifted_features),
             'total_features': len(psi_scores)
         }
-    
-    def _determine_action(self, overall_psi: float, n_drifted: int) -> str:
-        """
-        Determine recommended action based on drift scores
-        
-        Args:
-            overall_psi: Overall drift score
-            n_drifted: Number of features with significant drift
-            
-        Returns:
-            Action recommendation: 'retrain', 'alert', or 'wait'
-        """
-        if overall_psi > self.PSI_THRESHOLD_HIGH or n_drifted > 5:
-            return 'retrain'
-        elif overall_psi > self.PSI_THRESHOLD_LOW or n_drifted > 0:
-            return 'alert'
-        else:
-            return 'wait'
     
     def log_drift_to_mlflow(self, drift_results: Dict, experiment_name: str = "drift_monitoring"):
         """
@@ -169,8 +152,7 @@ class DriftDetector:
                 for i, (feature, psi) in enumerate(drift_results['drifted_features'][:10]):
                     mlflow.log_metric(f"psi_rank_{i+1}_{feature[:30]}", psi)
                 
-                # Log action as tag
-                mlflow.set_tag("action_recommended", drift_results['action'])
+                # Log timestamp
                 mlflow.set_tag("timestamp", datetime.now().isoformat())
                 
                 # Log feature PSI as JSON artifact
@@ -189,7 +171,6 @@ class DriftDetector:
         print("="*60)
         print(f"Overall PSI: {drift_results['overall_psi']:.4f}")
         print(f"Drifted Features: {drift_results['n_drifted_features']}/{drift_results['total_features']}")
-        print(f"Recommended Action: {drift_results['action'].upper()}")
         print("\n" + "-"*60)
         
         if drift_results['drifted_features']:

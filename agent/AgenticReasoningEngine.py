@@ -31,7 +31,7 @@ class AgenticReasoningEngine:
     
     def __init__(
         self,
-        model: str = "meta-llama/llama-3.1-8b-instruct:free",
+        model: str = "liquid/lfm-2.5-1.2b-instruct:free",
         learning_rate: float = 0.1
     ):
         """
@@ -56,7 +56,7 @@ class AgenticReasoningEngine:
             print("⚠️  OpenRouter API key not found. Using rule-based fallback.")
             print("   Set OPENROUTER_API_KEY in .env for LLM reasoning.")
         # Use cheap, fast model for demo
-        self.model = "meta-llama/llama-3.1-8b-instruct:free"  # FREE!
+        self.model = "liquid/lfm-2.5-1.2b-instruct:free"  # FREE!
         # Or upgrade: "anthropic/claude-3.5-sonnet" for better reasoning
     
     def reason_about_action(
@@ -159,6 +159,36 @@ class AgenticReasoningEngine:
         except Exception as e:
             logger.warning(f"Failed to log to MLflow: {e}")
     
+    def _save_decision_log(
+        self,
+        drift_results: Dict,
+        context: Dict,
+        decision: Dict
+    ):
+        """Save decision log to JSONL file for review and learning"""
+        log_file = Path("agent/logs/reasoning_decisions.jsonl")
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "drift_results": drift_results,
+            "context": context,
+            "action": decision['action'],
+            "confidence": decision['confidence'],
+            "reasoning": decision['reasoning'],
+            "reasoning_type": decision.get('reasoning_type', 'rule-based'),
+            "thresholds": {
+                "psi_low": self.psi_threshold_low,
+                "psi_high": self.psi_threshold_high
+            }
+        }
+        
+        try:
+            with open(log_file, 'a') as f:
+                f.write(json.dumps(log_entry) + '\n')
+        except Exception as e:
+            logger.warning(f"Failed to save decision log: {e}")
+    
     def _llm_reasoning(
         self,
         drift_results: Dict,
@@ -253,7 +283,9 @@ You must provide structured decisions that can be parsed and executed."""
 Drift Metrics:
 - Overall PSI Score: {drift_results['overall_psi']:.4f}
 - Drifted Features: {drift_results['n_drifted_features']}/{drift_results['total_features']}
-- Automatic Recommendation: {drift_results['action'].upper()}
+
+Top Drifted Features:
+{drifted_features_str}
 
 Operational Context:
 - Hours Since Last Retrain: {context.get('hours_since_retrain', 'Never')}
