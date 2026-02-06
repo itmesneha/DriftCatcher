@@ -200,7 +200,7 @@ def main():
     
     # Initialize detector
     print("Initializing drift detector...")
-    detector = DriftDetector("training_stats.json")
+    detector = DriftDetector("artifacts/training_stats.json")
     
     # Detect drift
     print("Computing drift scores...")

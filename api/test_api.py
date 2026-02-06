@@ -71,7 +71,7 @@ def test_agent_plan():
     context = {
         'latest_data_path': 'data/new_batch.csv',
         'base_data_path': 'data/training.csv',
-        'holdout_path': 'data/holdout.csv'
+        'holdout_path': 'data/processed/holdout.csv'
     }
     
     response = requests.post(

@@ -30,6 +30,7 @@ training_stats.json
 *.log
 agent/logs/
 monitoring/logs/
+*.json
 
 # macOS
 .DS_Store
