@@ -18,3 +18,41 @@ Agent decides:
 uv run dvc add data/raw/
 git add data/raw.dvc
 git commit -m "Update raw data"
+
+We intentionally separated drift detection from retraining decisions. Drift metrics are deterministic, but the retraining agent reasons over time, memory, and operational constraints like cooldowns and data availability.
+
+Tech stack (hackathon-friendly)
+
+Data
+
+CICIDS2017
+
+UNSW-NB15
+
+Or even synthetic logs (acceptable!)
+
+Model
+
+Logistic Regression / XGBoost / Random Forest
+
+Or Isolation Forest for anomaly detection
+
+👉 Simplicity = good engineering judgment
+
+MLOps
+
+MLflow for experiment tracking
+
+Dockerized training + inference
+
+FastAPI inference endpoint
+
+Simple CI pipeline (even pseudo)
+
+Monitoring
+
+Prediction distribution
+
+Drift detection (feature mean shifts)
+
+Alert volume over time

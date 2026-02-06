@@ -1,0 +1,15 @@
+{
+  "last_retrain_time": "2026-02-06T16:59:57.008746",
+  "last_alert_time": null,
+  "total_retrains": 1,
+  "total_alerts": 0,
+  "total_checks": 1,
+  "drift_history": [
+    {
+      "timestamp": "2026-02-06T16:59:46.121008",
+      "overall_psi": 5.33021048389172,
+      "n_drifted_features": 78,
+      "action_recommended": "retrain"
+    }
+  ]
+}
