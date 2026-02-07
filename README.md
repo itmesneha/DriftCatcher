@@ -44,7 +44,7 @@ DriftCatcher is an intelligent system that autonomously monitors, reasons about,
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     DRIFTCATCHER SYSTEM                          │
+│                     DRIFTCATCHER SYSTEM                         │
 └─────────────────────────────────────────────────────────────────┘
 
 ┌──────────────┐      ┌──────────────┐      ┌──────────────┐
@@ -55,11 +55,11 @@ DriftCatcher is an intelligent system that autonomously monitors, reasons about,
                              │
                 ┌────────────┼────────────┐
                 │            │            │
-         ┌──────▼─────┐ ┌───▼────────┐ ┌─▼──────────┐
+         ┌──────▼─────┐ ┌────▼───────┐ ┌──▼─────────┐
          │   Drift    │ │  Reasoning │ │  Planning  │
          │  Detector  │ │   Engine   │ │   Agent    │
          │    (PSI)   │ │   (LLM)    │ │  (Tools)   │
-         └────────────┘ └────────────┘ └─────┬──────┘
+         └────────────┘ └────────────┘ └──────┬─────┘
                                               │
                     ┌─────────────────────────┼─────────────┐
                     │                         │             │
