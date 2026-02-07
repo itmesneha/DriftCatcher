@@ -63,7 +63,7 @@ DriftCatcher is an intelligent system that autonomously monitors, reasons about,
                                               │
                     ┌─────────────────────────┼─────────────┐
                     │                         │             │
-             ┌──────▼──────┐         ┌────────▼────┐  ┌────▼──────┐
+             ┌──────▼──────┐         ┌────────▼────┐  ┌─────▼─────┐
              │   Retrain   │         │  Validate   │  │  Deploy   │
              │    Model    │────────►│   Model     │─►│   Model   │
              └──────┬──────┘         └─────────────┘  └───────────┘
