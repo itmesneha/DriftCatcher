@@ -304,23 +304,64 @@ def main():
         import pandas as pd
         import tempfile
         
-        # Load base data
+        # Sample limit PER FILE to prevent OOM when loading large files
+        sample_per_file = 15000  # Sample each file to 15k rows before combining
+        
+        # Load base data with sampling
+        print(f"Loading base data: {args.base_data}")
         base_df = pd.read_csv(args.base_data)
-        print(f"Loaded base data: {args.base_data} with {len(base_df)} rows")
+        base_df.columns = base_df.columns.str.strip()  # Strip whitespace from column names
+        print(f"   Loaded {len(base_df)} rows")
+        
+        if len(base_df) > sample_per_file:
+            print(f"   ⚠️  Sampling base data from {len(base_df)} to {sample_per_file} rows to prevent OOM")
+            base_df = base_df.sample(n=sample_per_file, random_state=42).reset_index(drop=True)
         
         # Combine with new data if provided
         if args.new_data:
-            new_dfs = [pd.read_csv(nd) for nd in args.new_data]
-            print(f"Loaded {len(args.new_data)} new dataset(s) with {sum(len(df) for df in new_dfs)} total rows")
+            new_dfs = []
+            for nd in args.new_data:
+                df = pd.read_csv(nd)
+                df.columns = df.columns.str.strip()  # Strip whitespace from column names
+                print(f"   Loaded new data: {nd} with {len(df)} rows")
+                
+                if len(df) > sample_per_file:
+                    print(f"   ⚠️  Sampling new data from {len(df)} to {sample_per_file} rows")
+                    df = df.sample(n=sample_per_file, random_state=42).reset_index(drop=True)
+                    
+                new_dfs.append(df)
+            
             combined_df = pd.concat([base_df] + new_dfs, ignore_index=True)
         else:
             combined_df = base_df
         
+        # Validate combined dataset
+        print(f"📊 Combined dataset info:")
+        print(f"   Rows: {len(combined_df)}")
+        print(f"   Columns: {len(combined_df.columns)}")
+        print(f"   Memory: {combined_df.memory_usage(deep=True).sum() / 1024**2:.2f} MB")
+        
+        if len(combined_df) == 0:
+            raise ValueError("Combined dataset is empty! Check that base_data and new_data files have valid data.")
+        
+        # Further sample if combined dataset still too large
+        max_rows = 25000  # Target 25k rows total after combination
+        if len(combined_df) > max_rows:
+            print(f"⚠️  Combined dataset has {len(combined_df)} rows, sampling to {max_rows}")
+            combined_df = combined_df.sample(n=max_rows, random_state=42)
+        
+        # Reduce model complexity for sampled data
+        args.n_estimators = min(args.n_estimators, 20)
+        args.max_depth = min(args.max_depth, 5)
+        print(f"   Model complexity: n_estimators={args.n_estimators}, max_depth={args.max_depth}")
+        
         # Save to temporary file
         temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
-        combined_df.to_csv(temp_file.name, index=False)
-        csv_path = temp_file.name
-        print(f"Combined dataset: {len(combined_df)} rows saved to {csv_path}")
+        temp_path = temp_file.name
+        temp_file.close()  # Close the file handle before writing
+        combined_df.to_csv(temp_path, index=False)
+        csv_path = temp_path
+        print(f"✅ Combined dataset: {len(combined_df)} rows saved to {csv_path}")
     elif args.csv_path:
         csv_path = args.csv_path
     else:

@@ -17,6 +17,12 @@ services:
       - MLFLOW_TRACKING_URI=http://mlflow:5000
       - MLFLOW_HTTP_REQUEST_MAX_RETRIES=3
       - MLFLOW_HTTP_REQUEST_TIMEOUT=120
+    deploy:
+      resources:
+        limits:
+          memory: 6G  # Increased from 4G to 6G for training
+        reservations:
+          memory: 3G  # Increased from 2G to 3G
     depends_on:
       - mlflow
     networks:
@@ -76,6 +82,12 @@ services:
       - mlflow
     networks:
       - driftcatcher-network
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
 
 volumes:
   mlflow-pgdata:

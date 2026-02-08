@@ -162,6 +162,232 @@ uv run streamlit run dashboard/app.py
 
 ---
 
+## 🐳 Docker Deployment (Recommended)
+
+### Pull from Docker Hub
+
+```bash
+# Pull the latest image
+docker pull yourusername/driftcatcher:latest
+
+# Or build locally
+docker build -t driftcatcher:latest -f docker/Dockerfile .
+```
+
+### Quick Start with Docker Compose
+
+```bash
+# Navigate to docker directory
+cd docker
+
+# Set your OpenRouter API key (required for LLM reasoning)
+export OPENROUTER_API_KEY="sk-or-v1-your-api-key-here"
+
+# Start all services (API, Dashboard, MLflow, PostgreSQL)
+docker compose up -d
+
+# Check service status
+docker ps
+```
+
+**Access the services:**
+- **Dashboard**: http://localhost:8501
+- **API**: http://localhost:8000 (Docs at http://localhost:8000/docs)
+- **MLflow UI**: http://localhost:5001
+
+### Memory Configuration
+
+The Docker setup is optimized for memory efficiency:
+
+```yaml
+# docker/docker-compose.yml
+services:
+  driftcatcher-api:
+    deploy:
+      resources:
+        limits:
+          memory: 6G      # Maximum memory
+        reservations:
+          memory: 3G      # Reserved memory
+  
+  driftcatcher-dashboard:
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+```
+
+**Adjust limits** if working with larger datasets:
+```bash
+# Edit docker/docker-compose.yml
+# Increase memory limits under deploy.resources.limits.memory
+
+# Restart services
+docker compose down
+docker compose up -d
+```
+
+### Initial Dataset Setup
+
+The container includes a sampled baseline (50k rows) for demo purposes. To use your own dataset:
+
+```bash
+# 1. Copy your dataset into the container
+docker cp /path/to/your/baseline.csv docker-driftcatcher-api-1:/app/data/baseline.csv
+
+# 2. Verify the dataset
+docker exec docker-driftcatcher-api-1 ls -lh /app/data/baseline.csv
+
+# 3. Train initial model (or use the Digital Twin Simulator in the dashboard)
+docker exec docker-driftcatcher-api-1 bash -c "cd /app && uv run python training/train_universal.py --base-data data/baseline.csv"
+```
+
+### Persisting Data
+
+**Mount volumes** to persist data between container restarts:
+
+```yaml
+# docker/docker-compose.yml (already configured)
+volumes:
+  - ./data:/app/data          # Your datasets
+  - ./mlruns:/app/mlruns      # MLflow experiments
+  - postgres_data:/var/lib/postgresql/data  # MLflow backend
+```
+
+Data is stored in:
+- `./data/` - Baseline datasets and uploads
+- `./mlruns/` - MLflow experiment tracking
+- `postgres_data` - MLflow metadata (Docker volume)
+
+---
+
+## 📊 Working with Different Datasets
+
+DriftCatcher is **dataset agnostic** and works with any tabular CSV data. Here's how to configure it for your dataset:
+
+### Dataset Configuration
+
+Create or modify a dataset config in `config/dataset_config.py`:
+
+```python
+from config.dataset_config import DatasetConfig, DATASETS
+
+# Add your dataset configuration
+DATASETS["YourDataset"] = DatasetConfig(
+    name="YourDataset",
+    label_column="target",           # Your target/label column name
+    feature_columns=None,            # None = auto-detect all numeric columns
+    binary_classification=True,      # True for binary, False for multi-class
+    description="Your dataset description"
+)
+```
+
+**Auto-Detection Features:**
+- **Label Column**: Automatically looks for 'Label', 'label', 'target', 'class', 'y'
+- **Feature Columns**: All numeric columns except the label
+- **Binary Classification**: Converts labels to 0/1 automatically
+
+### Using Your Dataset
+
+**Option 1: Via Docker Dashboard (Recommended)**
+
+1. Navigate to **Digital Twin Simulator** tab
+2. Upload your CSV file (any structure)
+3. Click **Run Digital Twin Simulation**
+4. The system will:
+   - Auto-detect label and features
+   - Detect drift
+   - Make retraining decisions
+   - Validate and deploy models
+
+**Option 2: Via Training Script**
+
+```bash
+# Using Docker
+docker exec docker-driftcatcher-api-1 bash -c "cd /app && \
+  uv run python training/train_universal.py \
+    --base-data data/your_baseline.csv \
+    --dataset YourDataset"
+
+# Or locally
+uv run python training/train_universal.py \
+  --base-data data/your_baseline.csv \
+  --new-data data/your_new_data.csv \
+  --dataset YourDataset
+```
+
+**Option 3: Via API**
+
+```bash
+curl -X POST "http://localhost:8000/agent/digital-twin" \
+  -F "file=@your_data.csv"
+```
+
+### Dataset Requirements
+
+Your CSV should have:
+- **Numeric features**: Most ML-relevant columns
+- **Label column**: Target variable for classification
+- **Header row**: Column names in the first row
+- **No missing critical data**: Clean or handle NaNs beforehand
+
+**Example CSV structure:**
+```csv
+feature1,feature2,feature3,...,target
+1.2,0.5,3.4,...,0
+0.8,1.2,2.1,...,1
+...
+```
+
+### Memory-Efficient Training
+
+For large datasets (>100k rows), the system automatically:
+- Samples each file to 15k rows before combining
+- Maintains baseline at 50k rows maximum
+- Uses chunked processing for PSI calculation
+
+**Manual sampling** if needed:
+```bash
+docker exec docker-driftcatcher-api-1 bash -c "cd /app && uv run python -c \"
+import pandas as pd
+df = pd.read_csv('data/your_large_file.csv')
+sampled = df.sample(n=50000, random_state=42)
+sampled.to_csv('data/your_large_file_sampled.csv', index=False)
+print(f'Sampled {len(df)} to {len(sampled)} rows')
+\""
+```
+
+### Built-in Dataset Configs
+
+```python
+# config/dataset_config.py
+DATASETS = {
+    "CICIDS2017": DatasetConfig(
+        name="CICIDS2017",
+        label_column="Label",
+        feature_columns=None,  # Auto-detect 78 features
+        binary_classification=True
+    ),
+    "Generic": DatasetConfig(
+        name="Generic",
+        label_column=None,     # Auto-detect
+        feature_columns=None,  # Auto-detect
+        binary_classification=True
+    )
+}
+```
+
+Use `"Generic"` for any dataset with auto-detection:
+```bash
+uv run python training/train_universal.py \
+  --base-data data/your_data.csv \
+  --dataset Generic
+```
+
+---
+
 ## 🧠 Machine Learning Pipeline
 
 ### Model Architecture

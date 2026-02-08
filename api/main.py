@@ -13,7 +13,9 @@ import numpy as np
 import math
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException, UploadFile, File
+import asyncio
+import uuid
+from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import mlflow
@@ -36,6 +38,9 @@ app = FastAPI(
     description="Agentic AI system for autonomous ML model lifecycle management",
     version="1.0.0"
 )
+
+# Job tracking for long-running tasks
+jobs = {}
 
 # CORS for frontend
 app.add_middleware(
@@ -479,30 +484,13 @@ def get_deployment_risk() -> str:
     return "medium"  # Conservative default
 
 
-@app.post("/agent/digital-twin")
-async def digital_twin_simulation(file: UploadFile = File(...)):
-    """
-    Digital twin simulation: Upload CSV and see what agent would decide
-    Complete flow: drift check → reasoning → planning → execution (dry run)
-    Each agent logs to its own MLflow experiment automatically
-    """
-    if not all([drift_detector, reasoning_engine, planning_agent]):
-        raise HTTPException(status_code=503, detail="Agents not fully initialized")
-    
+async def run_digital_twin_simulation(job_id: str, df: pd.DataFrame, new_data_path: str):
+    """Background task for digital twin simulation"""
     try:
-        # Read CSV
-        contents = await file.read()
-        df = pd.read_csv(pd.io.common.BytesIO(contents))
-        df.columns = df.columns.str.strip()
+        jobs[job_id]['status'] = 'running'
+        jobs[job_id]['progress'] = 'drift_detection'
         
-        logger.info(f"🎭 Digital Twin: Simulating on {len(df)} samples")
-        
-        # Save uploaded data for retraining
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        new_data_path = f"data/uploads/simulation_{timestamp}.csv"
-        os.makedirs("data/uploads", exist_ok=True)
-        df.to_csv(new_data_path, index=False)
-        logger.info(f"Saved uploaded data to {new_data_path}")
+        logger.info(f"🎭 Digital Twin [{job_id}]: Simulating on {len(df)} samples")
         
         # Step 1: Drift detection (logs to drift_monitoring experiment)
         logger.info("Step 1: Running drift detection...")
@@ -531,6 +519,8 @@ async def digital_twin_simulation(file: UploadFile = File(...)):
         except Exception as e:
             logger.warning(f"MLflow logging failed: {e}")
         
+        jobs[job_id]['progress'] = 'reasoning'
+        
         # Step 2: Build dynamic context from system state
         logger.info("Step 2: Gathering operational context...")
         context = {
@@ -545,6 +535,8 @@ async def digital_twin_simulation(file: UploadFile = File(...)):
         # Step 3: Reasoning engine decision (logs to agent_reasoning experiment)
         logger.info("Step 3: Consulting reasoning engine...")
         decision = reasoning_engine.reason_about_action(drift_results, context)
+        
+        jobs[job_id]['progress'] = 'planning'
         
         # Step 4: Create and execute plan if needed (logs to agent_planning experiment)
         plan = None
@@ -565,6 +557,8 @@ async def digital_twin_simulation(file: UploadFile = File(...)):
             
             # Create plan (logs plan creation to MLflow)
             plan_steps = planning_agent.create_plan("maintain_accuracy_above_0.95", plan_context)
+            
+            jobs[job_id]['progress'] = 'executing'
             
             # Execute plan for REAL (not dry run)
             logger.info("Step 5: Executing plan...")
@@ -608,23 +602,91 @@ async def digital_twin_simulation(file: UploadFile = File(...)):
                 },
                 "4_execution": {
                     "executed": execution_results is not None,
-                    "dry_run": True,
+                    "dry_run": False,
                     "results": execution_results
                 }
             }
         }
         
-        logger.info("✅ Digital twin simulation complete")
-        
-        return {
+        jobs[job_id]['status'] = 'completed'
+        jobs[job_id]['result'] = {
             "status": "success",
             "simulation": simulation_summary,
             "message": f"Simulation complete: {action} recommended based on PSI={drift_results['overall_psi']:.3f}"
         }
         
+        logger.info(f"✅ Digital twin simulation [{job_id}] complete")
+        
+    except Exception as e:
+        logger.error(f"Digital twin simulation [{job_id}] error: {e}")
+        jobs[job_id]['status'] = 'failed'
+        jobs[job_id]['error'] = str(e)
+
+
+@app.post("/agent/digital-twin")
+async def digital_twin_simulation(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    """
+    Digital twin simulation: Upload CSV and start background job
+    Returns job_id to poll for results
+    """
+    if not all([drift_detector, reasoning_engine, planning_agent]):
+        raise HTTPException(status_code=503, detail="Agents not fully initialized")
+    
+    try:
+        # Read CSV
+        contents = await file.read()
+        df = pd.read_csv(pd.io.common.BytesIO(contents))
+        df.columns = df.columns.str.strip()
+        
+        # Save uploaded data for retraining
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        new_data_path = f"data/uploads/simulation_{timestamp}.csv"
+        os.makedirs("data/uploads", exist_ok=True)
+        df.to_csv(new_data_path, index=False)
+        
+        # Create job
+        job_id = str(uuid.uuid4())
+        jobs[job_id] = {
+            "id": job_id,
+            "status": "queued",
+            "progress": "initializing",
+            "created_at": datetime.now().isoformat(),
+            "data_samples": len(df),
+            "data_path": new_data_path
+        }
+        
+        # Start background task
+        background_tasks.add_task(run_digital_twin_simulation, job_id, df, new_data_path)
+        
+        logger.info(f"🎭 Digital Twin job [{job_id}] queued for {len(df)} samples")
+        
+        return {
+            "status": "accepted",
+            "job_id": job_id,
+            "message": "Simulation started in background. Poll /agent/digital-twin/{job_id} for results."
+        }
+        
     except Exception as e:
         logger.error(f"Digital twin simulation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/agent/digital-twin/{job_id}")
+async def get_digital_twin_status(job_id: str):
+    """Get status of a digital twin simulation job"""
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    job = jobs[job_id]
+    return {
+        "job_id": job_id,
+        "status": job["status"],
+        "progress": job.get("progress"),
+        "created_at": job["created_at"],
+        "data_samples": job.get("data_samples"),
+        "result": job.get("result"),
+        "error": job.get("error")
+    }
 
 
 # MLflow integration

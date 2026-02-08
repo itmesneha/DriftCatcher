@@ -683,21 +683,34 @@ class PlanningAgent:
         try:
             print(f"  Running: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            # Log stdout for debugging
+            if result.stdout:
+                print(f"  📋 Training output:\n{result.stdout}")
             print(f"  ✅ Retraining completed")
             
             # Update baseline with combined data for next retraining cycle
             if new_data:
                 print(f"  📦 Updating baseline with combined data...")
                 try:
+                    # Maximum baseline size to prevent OOM
+                    max_baseline_size = 50000
+                    
                     # Load and combine all datasets
                     base_df = pd.read_csv(base_data)
                     new_dfs = [pd.read_csv(nd) for nd in new_data]
                     combined_df = pd.concat([base_df] + new_dfs, ignore_index=True)
                     
+                    print(f"     Combined data: {len(combined_df)} samples")
+                    
+                    # Sample if exceeds max size to prevent baseline from growing unboundedly
+                    if len(combined_df) > max_baseline_size:
+                        print(f"     ⚠️  Sampling from {len(combined_df)} to {max_baseline_size} rows to prevent OOM")
+                        combined_df = combined_df.sample(n=max_baseline_size, random_state=42)
+                    
                     # Save as new baseline
                     baseline_path = Path("data/baseline.csv")
                     combined_df.to_csv(baseline_path, index=False)
-                    print(f"     Saved {len(combined_df)} samples to baseline.csv")
+                    print(f"     ✅ Saved {len(combined_df)} samples to baseline.csv")
                     
                     # Version with DVC
                     print(f"  🔖 Versioning baseline with DVC...")
@@ -716,6 +729,8 @@ class PlanningAgent:
             return {'success': True, 'output': result.stdout, 'baseline_updated': bool(new_data)}
         except subprocess.CalledProcessError as e:
             print(f"  ❌ Retraining failed: {e.stderr}")
+            if e.stdout:
+                print(f"  📋 Training stdout before error:\n{e.stdout}")
             raise
     
     def _tool_validate_model(self, holdout_path: str) -> Dict:

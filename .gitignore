@@ -19,6 +19,7 @@ mlflow.db
 data/raw/
 data/processed/
 *.csv
+data/baseline.csv.backup
 
 # Artifacts and outputs
 artifacts/

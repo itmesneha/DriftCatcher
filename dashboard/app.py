@@ -64,6 +64,7 @@ def check_api_health():
     except:
         return False, None
 
+@st.cache_data(ttl=5)  # Cache for 5 seconds
 def get_mlflow_experiments():
     """Get MLflow experiments from API"""
     try:
@@ -72,6 +73,7 @@ def get_mlflow_experiments():
     except:
         return []
 
+@st.cache_data(ttl=5)  # Cache for 5 seconds
 def get_mlflow_runs(experiment_name, limit=10):
     """Get runs for an experiment"""
     try:
@@ -84,6 +86,7 @@ def get_mlflow_runs(experiment_name, limit=10):
     except:
         return []
 
+@st.cache_data(ttl=5)  # Cache for 5 seconds
 def get_agent_status():
     """Get agent status"""
     try:
@@ -92,6 +95,7 @@ def get_agent_status():
     except:
         return None
 
+@st.cache_data(ttl=5)  # Cache for 5 seconds
 def get_recent_logs(limit=10):
     """Get recent agent logs"""
     try:
@@ -116,23 +120,59 @@ def check_drift(file):
 
 def run_digital_twin(file):
     """Run digital twin simulation"""
+    import time
     try:
         files = {"file": file}
-        response = requests.post(f"{API_BASE_URL}/agent/digital-twin", files=files, timeout=60)
+        response = requests.post(f"{API_BASE_URL}/agent/digital-twin", files=files, timeout=120)
         
-        if response.ok:
-            return response.json()
-        else:
+        if not response.ok:
             st.error(f"❌ API Error {response.status_code}: {response.text[:500]}")
             return None
+        
+        result = response.json()
+        
+        # Check if API returned async job
+        if result.get("status") == "accepted" and "job_id" in result:
+            job_id = result["job_id"]
+            st.info(f"🔄 Simulation running... Job ID: {job_id[:8]}")
+            
+            # Poll for results (max 5 minutes for training to complete)
+            max_polls = 60  # 60 * 5s = 300s (5 minutes)
+            progress_placeholder = st.empty()
+            
+            for i in range(max_polls):
+                time.sleep(5)
+                poll_response = requests.get(f"{API_BASE_URL}/agent/digital-twin/{job_id}", timeout=10)
+                
+                if poll_response.ok:
+                    poll_result = poll_response.json()
+                    status = poll_result.get("status")
+                    
+                    if status == "completed":
+                        progress_placeholder.success("✅ Simulation complete!")
+                        return poll_result.get("result")
+                    elif status == "failed":
+                        st.error(f"❌ Simulation failed: {poll_result.get('error', 'Unknown error')}")
+                        return None
+                    elif status == "running":
+                        progress = poll_result.get("progress", "In progress...")
+                        elapsed = (i + 1) * 5
+                        progress_placeholder.info(f"⏳ {progress} ({elapsed}s elapsed)")
+                    else:
+                        st.warning(f"⚠️ Unknown status: {status}")
+                        return None
+            
+            st.error("❌ Simulation timed out after 5 minutes. Training may still be running - check API logs.")
+            return None
+        
+        # If not async, return direct result (backward compatibility)
+        return result
+        
     except requests.exceptions.Timeout:
-        st.error("❌ Request timed out. The simulation may be taking too long.")
-        return None
-    except requests.exceptions.ConnectionError:
-        st.error("❌ Cannot connect to API. Make sure it's running on port 8000.")
+        st.error("❌ Request timed out. Check API logs for progress.")
         return None
     except Exception as e:
-        st.error(f"❌ Error running simulation: {str(e)}")
+        st.error(f"❌ Error: {e}")
         import traceback
         st.code(traceback.format_exc())
         return None
@@ -189,7 +229,7 @@ with tab1:
             
             if selected_exp:
                 # st.write("🧪 Selected experiment raw name:", repr(selected_exp))
-                runs = get_mlflow_runs(selected_exp, limit=20)
+                runs = get_mlflow_runs(selected_exp, limit=10)  # Reduced from 20 to 10 to save memory
                 
                 if runs:
                     st.markdown(f"**Recent Runs: {len(runs)}**")
@@ -705,6 +745,10 @@ with tab4:
     st.markdown("**Upload CSV data to simulate complete agent decision flow**")
     st.markdown("Flow: Drift Detection → Reasoning Engine → Planning Agent")
     
+    # Show current cached result status for debugging
+    # if "sim_result" in st.session_state:
+        # st.warning("⚠️ Showing cached results from previous simulation. Click 'Clear Results' or run new simulation to update.")
+    
     col1, col2 = st.columns([1, 1])
     
     with col1:
@@ -726,6 +770,10 @@ with tab4:
             sim_file.seek(0)
             
             if st.button("Run Digital Twin Simulation", type="primary", key="run_sim_btn"):
+                # Clear previous results
+                if "sim_result" in st.session_state:
+                    del st.session_state.sim_result
+                
                 st.info("🔄 Starting simulation...")
                 
                 with st.spinner("Running complete simulation flow..."):
@@ -741,9 +789,17 @@ with tab4:
                         st.rerun()
                     else:
                         st.error("❌ Simulation failed. Check error message above.")
+                        # Clear old results on failure too
+                        st.rerun()
     
     with col2:
         st.subheader("Simulation Results")
+        
+        # Add a clear button
+        if "sim_result" in st.session_state:
+            if st.button("🗑️ Clear Results", key="clear_results_top"):
+                del st.session_state.sim_result
+                st.rerun()
         
         if "sim_result" in st.session_state:
             result = st.session_state.sim_result
@@ -778,7 +834,7 @@ with tab4:
             st.markdown("### 2️⃣ Agent Reasoning")
             decision = steps.get("2_reasoning", {})
             
-            action = decision.get("action", "Unknown")
+            action = decision.get("action", "Unknown").upper()  # Normalize to uppercase
             reasoning = decision.get("reasoning", "No reasoning")
             confidence = decision.get("confidence", 0.0)
             
@@ -931,12 +987,6 @@ with tab4:
                             st.info("Pending execution")
             else:
                 st.success("✅ No plan needed - monitoring only")
-            
-            # Clear button
-            st.markdown("---")
-            if st.button("🗑️ Clear Results"):
-                del st.session_state.sim_result
-                st.rerun()
         else:
             st.info("Upload a CSV file and run simulation to see results here")
 

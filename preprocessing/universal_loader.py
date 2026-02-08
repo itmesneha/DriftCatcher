@@ -98,7 +98,7 @@ class UniversalDataLoader:
             # Skip if already numeric
             if pd.api.types.is_numeric_dtype(df[col]):
                 # Check if it's an ID column (all unique or mostly unique)
-                if df[col].nunique() / len(df) > 0.95:
+                if len(df) > 0 and df[col].nunique() / len(df) > 0.95:
                     print(f"⏭️  Skipping ID-like column: '{col}' ({df[col].nunique()} unique values)")
                     continue
                 numeric_cols.append(col)
@@ -236,6 +236,22 @@ class UniversalDataLoader:
         
         # Detect label column
         label_col = self.detect_label_column(df)
+        print(f"   Label column detected: '{label_col}'")
+        print(f"   Available columns: {list(df.columns[:5])}... ({len(df.columns)} total)")
+        print(f"   Label column in dataframe: {label_col in df.columns}")
+        
+        if label_col not in df.columns:
+            raise ValueError(f"Detected label column '{label_col}' not found in dataframe! Available columns: {list(df.columns)}")
+        
+        try:
+            print(f"   Label column type: {df[label_col].dtype}")
+            print(f"   Sample labels: {list(df[label_col].head())}")
+            print(f"   Null labels: {df[label_col].isna().sum()}")
+        except Exception as e:
+            print(f"   ⚠️  Error accessing label column '{label_col}': {type(e).__name__}: {e}")
+            print(f"   Column names in df: {list(df.columns)}")
+            print(f"   DataFrame dtypes: {df.dtypes.to_dict()}")
+            raise
         
         # Drop rows with missing labels
         initial_rows = len(df)
@@ -243,16 +259,28 @@ class UniversalDataLoader:
         if len(df) < initial_rows:
             print(f"⚠️  Dropped {initial_rows - len(df)} rows with missing labels")
         
+        print(f"   Rows after dropping nulls: {len(df)}")
+        
         # Detect feature columns
         self.feature_columns = self.detect_feature_columns(df, label_col)
+        
+        print(f"   Detected {len(self.feature_columns)} feature columns")
+        if len(self.feature_columns) == 0:
+            raise ValueError(f"No feature columns detected! All columns were filtered out. Available columns: {list(df.columns)}")
         
         # Extract features and labels
         X = df[self.feature_columns].copy()
         y = df[label_col].copy()
         
+        print(f"   Extracted X shape: {X.shape}, y shape: {y.shape}")
+        
         # Clean features
         if clean_features:
             X = self.clean_numeric_features(X)
+        
+        # Validate we still have data after cleaning
+        if len(X) == 0:
+            raise ValueError(f"No data remaining after cleaning! Original CSV had {initial_rows} rows, all were removed during preprocessing.")
         
         # Process labels
         y_processed = self.process_labels(y)
