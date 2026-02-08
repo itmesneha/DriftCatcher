@@ -118,7 +118,11 @@ class DriftDetector:
                 drifted_features.append((feature, psi))
         
         # Aggregate drift score (mean PSI across all features)
-        overall_psi = np.mean(list(psi_scores.values()))
+        # Handle empty case to avoid NaN
+        if len(psi_scores) > 0:
+            overall_psi = float(np.mean(list(psi_scores.values())))
+        else:
+            overall_psi = 0.0
         
         return {
             'overall_psi': overall_psi,

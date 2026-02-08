@@ -1,0 +1,75 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+.venv/
+.uv/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Data & Logs (CRITICAL - exclude large files)
+data/
+mlruns/
+artifacts/
+agent/logs/
+monitoring/logs/
+*.jsonl
+*.log
+*.csv
+*.pcap
+
+# Model files (don't bake into image)
+*.pkl
+*.joblib
+*.h5
+*.pth
+*.onnx
+*.pb
+
+# Git
+.git/
+.gitignore
+
+# DVC (CRITICAL - 844MB!)
+.dvc/
+*.dvc
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Documentation
+docs/
+screenshots/
+scratchwork/
+
+# Build artifacts
+main.py
+mlflow.db
+drift_feature_psi.json
+
+# Docker folder itself
+docker/
+
+# Environment files
+.env
+.env.*
+!.env.example

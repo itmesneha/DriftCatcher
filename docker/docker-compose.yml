@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  driftcatcher-api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../artifacts:/app/artifacts
+      - ../data:/app/data
+      - ../mlruns:/app/mlruns
+      - ../config:/app/config
+    environment:
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - MLFLOW_HTTP_REQUEST_MAX_RETRIES=3
+      - MLFLOW_HTTP_REQUEST_TIMEOUT=120
+    depends_on:
+      - mlflow
+    networks:
+      - driftcatcher-network
+
+  mlflow:
+    build:
+      context: .
+      dockerfile: Dockerfile.mlflow
+    ports:
+      - "5001:5000"
+    volumes:
+      - ../artifacts:/mlflow/artifacts
+    environment:
+      - MLFLOW_SERVE_ARTIFACTS=true
+      - MLFLOW_AUTH_CONFIG_PATH=/dev/null
+      - MLFLOW_FLASK_SERVER_ALLOWED_HOSTS=*
+    command: >
+      sh -c "mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri postgresql://mlflow:mlflow@mlflow-db:5432/mlflow
+      --default-artifact-root /mlflow/artifacts
+      --gunicorn-opts '--timeout 120 --access-logfile -'"
+    depends_on:
+      - mlflow-db
+    networks:
+      - driftcatcher-network
+
+  mlflow-db:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=mlflow
+      - POSTGRES_PASSWORD=mlflow
+      - POSTGRES_DB=mlflow
+    volumes:
+      - mlflow-pgdata:/var/lib/postgresql/data
+    networks:
+      - driftcatcher-network
+
+  driftcatcher-dashboard:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.dashboard
+    ports:
+      - "8501:8501"
+    volumes:
+      - ../artifacts:/app/artifacts
+      - ../data:/app/data
+      - ../mlruns:/app/mlruns
+      - ../monitoring/logs:/app/monitoring/logs
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - API_URL=http://driftcatcher-api:8000
+    depends_on:
+      - driftcatcher-api
+      - mlflow
+    networks:
+      - driftcatcher-network
+
+volumes:
+  mlflow-pgdata:
+
+networks:
+  driftcatcher-network:

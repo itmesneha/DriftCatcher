@@ -135,7 +135,7 @@ class PlanningAgent:
     def _log_plan_to_mlflow(self, goal: str, context: Dict, plan: List[PlanStep]):
         """Log plan creation to MLflow"""
         try:
-            mlflow.set_experiment("agentic_planning")
+            mlflow.set_experiment("agent_planning")
             
             with mlflow.start_run(run_name=f"plan_{datetime.now().strftime('%Y%m%d_%H%M%S')}"):
                 # Log plan metadata
@@ -167,7 +167,7 @@ class PlanningAgent:
                 mlflow.set_tag("agent_type", "planning_agent")
                 mlflow.set_tag("goal", goal)
                 
-                logger.info("✅ Plan logged to MLflow experiment 'agentic_planning'")
+                logger.info("✅ Plan logged to MLflow experiment 'agent_planning'")
                 
         except Exception as e:
             logger.warning(f"Failed to log plan to MLflow: {e}")
@@ -488,7 +488,7 @@ class PlanningAgent:
     def _log_execution_to_mlflow(self, results: Dict):
         """Log plan execution results to MLflow"""
         try:
-            mlflow.set_experiment("agentic_planning")
+            mlflow.set_experiment("agent_planning")
             
             with mlflow.start_run(run_name=f"execution_{datetime.now().strftime('%Y%m%d_%H%M%S')}"):
                 # Log execution summary
@@ -514,7 +514,7 @@ class PlanningAgent:
                 mlflow.set_tag("execution_status", "success" if results['failed_steps'] == 0 else "partial_failure")
                 mlflow.set_tag("plan_id", results['plan_id'])
                 
-                logger.info("✅ Execution logged to MLflow experiment 'agentic_planning'")
+                logger.info("✅ Execution logged to MLflow experiment 'agent_planning'")
                 
         except Exception as e:
             logger.warning(f"Failed to log execution to MLflow: {e}")
@@ -676,7 +676,7 @@ class PlanningAgent:
         import pandas as pd
         from pathlib import Path
         
-        cmd = ["uv", "run", "python", "training/train.py", "--base-data", base_data]
+        cmd = ["uv", "run", "python", "training/train_universal.py", "--base-data", base_data]
         if new_data:
             cmd.extend(["--new-data"] + new_data)
         

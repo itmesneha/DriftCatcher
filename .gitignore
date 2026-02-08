@@ -45,3 +45,7 @@ monitoring/logs/
 
 
 
+
+# Docker environment files
+docker/.env
+docker-compose.override.yml

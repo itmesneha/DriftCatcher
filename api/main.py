@@ -9,6 +9,8 @@ from datetime import datetime
 from typing import Dict, List, Optional
 import pickle
 import logging
+import numpy as np
+import math
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException, UploadFile, File
@@ -128,12 +130,12 @@ async def startup_event():
         logger.info("Trying to load from MLflow...")
         load_model_from_mlflow()
     
-    # Initialize drift detector
+    # Initialize drift detector with drift stats file
     if os.path.exists(TRAINING_STATS_PATH):
         drift_detector = DriftDetector(TRAINING_STATS_PATH)
         logger.info(f"✅ Drift detector initialized")
     else:
-        logger.warning(f"⚠️  No training stats found at {TRAINING_STATS_PATH}")
+        logger.warning(f"⚠️  No training stats found at {TRAINING_STATS_PATH}, drift detection will be unavailable")
     
     # Initialize agents
     reasoning_engine = AgenticReasoningEngine()
@@ -241,8 +243,29 @@ async def check_drift(file: UploadFile = File(...)):
         # Detect drift
         results = drift_detector.detect_drift(df)
         
+        # Convert NaN to None for JSON serialization
+        def clean_value(val):
+            if isinstance(val, (float, np.floating)):
+                if math.isnan(val) or math.isinf(val):
+                    return None
+                return float(val)
+            return val
+        
+        def clean_dict(d):
+            if isinstance(d, dict):
+                return {k: clean_dict(v) for k, v in d.items()}
+            elif isinstance(d, list):
+                return [clean_dict(v) for v in d]
+            else:
+                return clean_value(d)
+        
+        results = clean_dict(results)
+        
         # Log to MLflow
-        drift_detector.log_drift_to_mlflow(results)
+        try:
+            drift_detector.log_drift_to_mlflow(results)
+        except Exception as e:
+            logger.warning(f"MLflow logging failed: {e}")
         
         return {
             "drift_results": results,
@@ -484,7 +507,29 @@ async def digital_twin_simulation(file: UploadFile = File(...)):
         # Step 1: Drift detection (logs to drift_monitoring experiment)
         logger.info("Step 1: Running drift detection...")
         drift_results = drift_detector.detect_drift(df)
-        drift_detector.log_drift_to_mlflow(drift_results)
+        
+        # Clean NaN values
+        def clean_value(val):
+            if isinstance(val, (float, np.floating)):
+                if math.isnan(val) or math.isinf(val):
+                    return None
+                return float(val)
+            return val
+        
+        def clean_dict(d):
+            if isinstance(d, dict):
+                return {k: clean_dict(v) for k, v in d.items()}
+            elif isinstance(d, list):
+                return [clean_dict(v) for v in d]
+            else:
+                return clean_value(d)
+        
+        drift_results = clean_dict(drift_results)
+        
+        try:
+            drift_detector.log_drift_to_mlflow(drift_results)
+        except Exception as e:
+            logger.warning(f"MLflow logging failed: {e}")
         
         # Step 2: Build dynamic context from system state
         logger.info("Step 2: Gathering operational context...")
@@ -497,11 +542,11 @@ async def digital_twin_simulation(file: UploadFile = File(...)):
         }
         logger.info(f"Context: {context}")
         
-        # Step 3: Reasoning engine decision (logs to agentic_reasoning experiment)
+        # Step 3: Reasoning engine decision (logs to agent_reasoning experiment)
         logger.info("Step 3: Consulting reasoning engine...")
         decision = reasoning_engine.reason_about_action(drift_results, context)
         
-        # Step 4: Create and execute plan if needed (logs to agentic_planning experiment)
+        # Step 4: Create and execute plan if needed (logs to agent_planning experiment)
         plan = None
         execution_results = None
         action = decision.get('action', 'MONITOR').upper()  # Normalize to uppercase

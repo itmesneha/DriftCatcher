@@ -140,8 +140,8 @@ class RetrainAgent:
             self._log_event("RETRAIN_START", "Starting model retraining (base data only)...")
         
         try:
-            # Build command
-            cmd = ["uv", "run", "python", "training/train.py"]
+            # Build command - use train_universal.py with MLflow logging
+            cmd = ["uv", "run", "python", "training/train_universal.py", "--base-data", "data/baseline.csv"]
             
             # Add new data paths if provided
             if new_data_paths:

@@ -81,7 +81,20 @@ class AgenticReasoningEngine:
         logger.info(f"Drifted features: {drift_results.get('n_drifted_features', 'N/A')}")
         logger.info(f"Context: {context}")
         
-        if self.use_llm:
+        # Safety check: If no drift detected, skip LLM and return MONITOR
+        overall_psi = drift_results.get('overall_psi', 0)
+        n_drifted = drift_results.get('n_drifted_features', 0)
+        
+        if overall_psi < 0.05 and n_drifted == 0:
+            logger.info("🟢 No significant drift detected (PSI < 0.05, 0 drifted features) - Auto-decision: MONITOR")
+            decision = {
+                'action': 'MONITOR',
+                'confidence': 95,
+                'reasoning': f'No drift detected. Overall PSI is {overall_psi:.4f} (below 0.05 threshold) with 0 drifted features. Model performance is stable, continuing monitoring.',
+                'risk_assessment': 'LOW',
+                'reasoning_type': 'rule-based-override'
+            }
+        elif self.use_llm:
             decision = self._llm_reasoning(drift_results, context)
         else:
             decision = self._rule_based_reasoning(drift_results, context)
@@ -112,7 +125,7 @@ class AgenticReasoningEngine:
     ):
         """Log reasoning engine decision to MLflow"""
         try:
-            mlflow.set_experiment("agentic_reasoning")
+            mlflow.set_experiment("agent_reasoning")
             
             with mlflow.start_run(run_name=f"decision_{datetime.now().strftime('%Y%m%d_%H%M%S')}"):
                 # Log input metrics
@@ -154,7 +167,7 @@ class AgenticReasoningEngine:
                 mlflow.set_tag("action", decision['action'])
                 mlflow.set_tag("reasoning_type", decision.get('reasoning_type', 'rule-based'))
                 
-                logger.info("✅ Decision logged to MLflow experiment 'agentic_reasoning'")
+                logger.info("✅ Decision logged to MLflow experiment 'agent_reasoning'")
                 
         except Exception as e:
             logger.warning(f"Failed to log to MLflow: {e}")

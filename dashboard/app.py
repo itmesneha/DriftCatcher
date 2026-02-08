@@ -10,10 +10,11 @@ import plotly.graph_objects as go
 from datetime import datetime
 import json
 from pathlib import Path
+import os
 
-# Configuration
-API_BASE_URL = "http://localhost:8000"
-MLFLOW_BASE_URL = "http://localhost:5001"
+# Configuration - Use environment variables for Docker compatibility
+API_BASE_URL = os.getenv("API_URL", "http://localhost:8000")
+MLFLOW_BASE_URL = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5001")
 
 st.set_page_config(
     page_title="DriftCatcher - Agentic AI Dashboard",
@@ -179,7 +180,7 @@ with tab1:
     col1, col2 = st.columns([1, 1])
     
     with col1:
-        st.subheader("MLflow Experiments")
+        st.subheader("MLflow Experiments!")
         
         experiments = get_mlflow_experiments()
         if experiments:
@@ -187,13 +188,18 @@ with tab1:
             selected_exp = st.selectbox("Select Experiment:", exp_names)
             
             if selected_exp:
+                # st.write("🧪 Selected experiment raw name:", repr(selected_exp))
                 runs = get_mlflow_runs(selected_exp, limit=20)
                 
                 if runs:
                     st.markdown(f"**Recent Runs: {len(runs)}**")
                     
-                    # Check if this is drift monitoring or model training
-                    if "drift" in selected_exp.lower():
+                    # Debug output
+                    # st.write(f"🔍 Experiment: `{selected_exp}`")
+                    
+                    # Check experiment type and show appropriate metrics
+                    if "drift_monitoring" in selected_exp.lower():
+                        # st.write("✅ Showing DRIFT_MONITORING metrics")
                         # Drift monitoring metrics
                         run_data = []
                         for run in runs:
@@ -237,7 +243,92 @@ with tab1:
                                 df_runs[["run_id", "overall_psi", "n_drifted", "total_features"]],
                                 width='stretch'
                             )
+                    elif "agent_reasoning" in selected_exp.lower():
+                        # st.write("✅ Showing AGENT_REASONING metrics")
+                        # Agent reasoning metrics
+                        run_data = []
+                        for run in runs:
+                            run_data.append({
+                                "run_id": run.get("run_id", "")[:8],
+                                "start_time": run.get("start_time", 0),
+                                "action": run.get("params.action", "N/A"),
+                                "confidence": run.get("metrics.confidence"),
+                                "drift_psi": run.get("metrics.drift_psi"),
+                                "reasoning_type": run.get("params.reasoning_type", "N/A")
+                            })
+                        
+                        if run_data:
+                            df_runs = pd.DataFrame(run_data)
+                            df_runs = df_runs.sort_values("start_time")
+                            
+                            # Plot confidence over time
+                            fig = go.Figure()
+                            fig.add_trace(go.Scatter(
+                                x=df_runs["run_id"],
+                                y=df_runs["confidence"],
+                                mode='lines+markers',
+                                name='Decision Confidence',
+                                line=dict(color='#10b981', width=2)
+                            ))
+                            
+                            fig.update_layout(
+                                title="Agent Decision Confidence Over Time",
+                                xaxis_title="Run ID",
+                                yaxis_title="Confidence (%)",
+                                hovermode='x unified',
+                                height=400
+                            )
+                            st.plotly_chart(fig, width='stretch')
+                            
+                            # Show recent decisions table
+                            st.dataframe(
+                                df_runs[["run_id", "action", "confidence", "drift_psi", "reasoning_type"]],
+                                width='stretch'
+                            )
+                    elif "agent_planning" in selected_exp.lower():
+                        # st.write("✅ Showing AGENT_PLANNING metrics")
+                        # Agent planning metrics
+                        run_data = []
+                        for run in runs:
+                            run_data.append({
+                                "run_id": run.get("run_id", "")[:8],
+                                "start_time": run.get("start_time", 0),
+                                "total_steps": run.get("metrics.total_steps"),
+                                "completed_steps": run.get("metrics.completed_steps"),
+                                "success_rate": run.get("metrics.success_rate"),
+                                "total_time": run.get("metrics.total_time_seconds")
+                            })
+                        
+                        if run_data:
+                            df_runs = pd.DataFrame(run_data)
+                            df_runs = df_runs.sort_values("start_time")
+                            
+                            # Plot success rate over time
+                            fig = go.Figure()
+                            fig.add_trace(go.Scatter(
+                                x=df_runs["run_id"],
+                                y=df_runs["success_rate"],
+                                mode='lines+markers',
+                                name='Success Rate',
+                                line=dict(color='#8b5cf6', width=2)
+                            ))
+                            
+                            fig.update_layout(
+                                title="Plan Execution Success Rate Over Time",
+                                xaxis_title="Run ID",
+                                yaxis_title="Success Rate (%)",
+                                hovermode='x unified',
+                                height=400
+                            )
+                            st.plotly_chart(fig, width='stretch')
+                            
+                            # Show recent plans table
+                            st.dataframe(
+                                df_runs[["run_id", "total_steps", "completed_steps", "success_rate", "total_time"]],
+                                width='stretch'
+                            )
                     else:
+                        # st.write("✅ Showing MODEL_TRAINING metrics (default)")
                         # Model training metrics
                         run_data = []
                         for run in runs:
@@ -495,7 +586,7 @@ with tab3:
             summary = reasoning.get("learning_summary", {})
             
             # Get total decisions from MLflow instead of in-memory counter
-            reasoning_runs = get_mlflow_runs("agentic_reasoning", limit=1000)
+            reasoning_runs = get_mlflow_runs("agent_reasoning", limit=1000)
             total_decisions = len(reasoning_runs)
             
             metric_col1, metric_col2 = st.columns(2)
@@ -559,7 +650,7 @@ with tab3:
     
     with col_a:
         st.markdown("**Reasoning Runs**")
-        reasoning_runs = get_mlflow_runs("agentic_reasoning", limit=10)
+        reasoning_runs = get_mlflow_runs("agent_reasoning", limit=10)
         if reasoning_runs:
             st.metric("Total Runs", len(reasoning_runs))
             
@@ -581,7 +672,7 @@ with tab3:
     
     with col_b:
         st.markdown("**Planning Runs**")
-        planning_runs = get_mlflow_runs("agentic_planning", limit=10)
+        planning_runs = get_mlflow_runs("agent_planning", limit=10)
         if planning_runs:
             st.metric("Total Plans", len(planning_runs))
             
