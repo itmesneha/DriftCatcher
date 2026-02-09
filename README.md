@@ -122,7 +122,7 @@ DriftCatcher is an intelligent system that autonomously monitors, reasons about,
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/DriftCatcher.git
+git clone https://github.com/sneha391998/DriftCatcher.git
 cd DriftCatcher
 
 # Install dependencies with uv
@@ -168,7 +168,7 @@ uv run streamlit run dashboard/app.py
 
 ```bash
 # Pull the latest image
-docker pull yourusername/driftcatcher:latest
+docker pull sneha391998/driftcatcher:latest
 
 # Or build locally
 docker build -t driftcatcher:latest -f docker/Dockerfile .
