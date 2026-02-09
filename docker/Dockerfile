@@ -16,13 +16,10 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
 
 WORKDIR /app
 
-# Copy dependency files
 COPY pyproject.toml uv.lock ./
-
-# Install dependencies with Python 3.12 explicitly
 RUN uv sync --frozen --no-dev --python 3.12
 
-# Copy application code (only what exists)
+# Copy all necessary code and config
 COPY agent/ ./agent/
 COPY api/ ./api/
 COPY dashboard/ ./dashboard/
@@ -31,9 +28,16 @@ COPY training/ ./training/
 COPY preprocessing/ ./preprocessing/
 COPY config/ ./config/
 COPY tools/ ./tools/
-
-# Create necessary directories
-RUN mkdir -p artifacts data/uploads data/processed mlruns agent/logs monitoring/logs
+COPY artifacts/ ./artifacts/
+COPY mlruns/ ./mlruns/
+COPY main.py ./main.py
+COPY drift_feature_psi.json ./drift_feature_psi.json
+COPY sample_baseline.py ./sample_baseline.py
+COPY regenerate_stats.py ./regenerate_stats.py
+COPY README.md ./README.md
+COPY docs/ ./docs/
+COPY screenshots/ ./screenshots/
+RUN mkdir -p data/uploads data/processed agent/logs monitoring/logs
 
 # Expose ports
 EXPOSE 8000

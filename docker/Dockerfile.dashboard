@@ -11,8 +11,21 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --python 3.12
 
+# Copy all necessary code and config
 COPY dashboard/ ./dashboard/
 COPY api/ ./api/
+COPY config/ ./config/
+COPY tools/ ./tools/
+COPY artifacts/ ./artifacts/
+COPY mlruns/ ./mlruns/
+COPY main.py ./main.py
+COPY drift_feature_psi.json ./drift_feature_psi.json
+COPY sample_baseline.py ./sample_baseline.py
+COPY regenerate_stats.py ./regenerate_stats.py
+COPY README.md ./README.md
+COPY docs/ ./docs/
+COPY screenshots/ ./screenshots/
+RUN mkdir -p agent/logs monitoring/logs
 
 EXPOSE 8501
 

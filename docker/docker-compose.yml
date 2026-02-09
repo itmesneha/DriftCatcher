@@ -7,11 +7,7 @@ services:
       dockerfile: docker/Dockerfile
     ports:
       - "8000:8000"
-    volumes:
-      - ../artifacts:/app/artifacts
-      - ../data:/app/data
-      - ../mlruns:/app/mlruns
-      - ../config:/app/config
+    # No host-mount volumes; all code, config, and sample data are copied into the image
     environment:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - MLFLOW_TRACKING_URI=http://mlflow:5000
@@ -34,8 +30,7 @@ services:
       dockerfile: Dockerfile.mlflow
     ports:
       - "5001:5000"
-    volumes:
-      - ../artifacts:/mlflow/artifacts
+    # No host-mount volumes; artifacts are managed inside the container
     environment:
       - MLFLOW_SERVE_ARTIFACTS=true
       - MLFLOW_AUTH_CONFIG_PATH=/dev/null
@@ -69,11 +64,7 @@ services:
       dockerfile: docker/Dockerfile.dashboard
     ports:
       - "8501:8501"
-    volumes:
-      - ../artifacts:/app/artifacts
-      - ../data:/app/data
-      - ../mlruns:/app/mlruns
-      - ../monitoring/logs:/app/monitoring/logs
+    # No host-mount volumes; logs and artifacts are managed inside the container
     environment:
       - MLFLOW_TRACKING_URI=http://mlflow:5000
       - API_URL=http://driftcatcher-api:8000
