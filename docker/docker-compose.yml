@@ -7,6 +7,11 @@ services:
       dockerfile: docker/Dockerfile
     ports:
       - "8000:8000"
+    volumes:
+      - ../data:/app/data
+      - ../artifacts:/app/artifacts
+      - ../data:/app/data
+      - ../mlruns:/app/mlruns
     # No host-mount volumes; all code, config, and sample data are copied into the image
     environment:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
