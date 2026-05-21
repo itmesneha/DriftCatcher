@@ -23,7 +23,7 @@ DriftCatcher is an intelligent system that autonomously monitors, reasons about,
 <td width="50%"><img src="screenshots/agentic plan execution.png" width="380" alt="Agentic Plan Execution"/><br/><sub>Agentic Plan Execution</sub></td>
 </tr>
 <tr>
-<td width="50%"><img src="screenshots/plan execution 2.png" width="380" alt="Plan Execution"/><br/><sub>Plan Execution</sub></td>
+<td width="50%"><img src="screenshots/plan execution 2.png" width="380" alt="Plan Execution"/><br/><sub>Agentic Plan Execution</sub></td>
 <td width="50%"><img src="screenshots/digital twin simulator.png" width="380" alt="Digital Twin Simulator"/><br/><sub>Digital Twin Simulator</sub></td>
 </tr>
 <tr>
