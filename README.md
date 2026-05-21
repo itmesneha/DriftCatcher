@@ -11,6 +11,41 @@ DriftCatcher is an intelligent system that autonomously monitors, reasons about,
 
 ---
 
+## Screenshots
+
+<table>
+<tr>
+<td width="50%"><img src="screenshots/drift detection and monitoring.png" width="380" alt="Drift Detection and Monitoring"/><br/><sub>Drift Detection and Monitoring</sub></td>
+<td width="50%"><img src="screenshots/model performance metrics.png" width="380" alt="Model Performance Metrics"/><br/><sub>Model Performance Metrics</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="screenshots/agentic ai activity monitor.png" width="380" alt="Agentic AI Activity Monitor"/><br/><sub>Agentic AI Activity Monitor</sub></td>
+<td width="50%"><img src="screenshots/agentic plan execution.png" width="380" alt="Agentic Plan Execution"/><br/><sub>Agentic Plan Execution</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="screenshots/plan execution 2.png" width="380" alt="Plan Execution"/><br/><sub>Plan Execution</sub></td>
+<td width="50%"><img src="screenshots/digital twin simulator.png" width="380" alt="Digital Twin Simulator"/><br/><sub>Digital Twin Simulator</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="screenshots/swagger api.png" width="380" alt="Swagger API Docs"/><br/><sub>Swagger API Docs</sub></td>
+<td width="50%"><img src="screenshots/mlflow run.png" width="380" alt="MLflow Run"/><br/><sub>MLflow Run</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="screenshots/mlflow decision.png" width="380" alt="MLflow Decision"/><br/><sub>MLflow Decision</sub></td>
+<td width="50%"><img src="screenshots/mlflow drift check.png" width="380" alt="MLflow Drift Check"/><br/><sub>MLflow Drift Check</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="screenshots/mlflow execution.png" width="380" alt="MLflow Execution"/><br/><sub>MLflow Execution</sub></td>
+<td width="50%"><img src="screenshots/ml flow agentic reasoning.png" width="380" alt="MLflow Agentic Reasoning"/><br/><sub>MLflow Agentic Reasoning</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="screenshots/ml flow agentic planning 1.png" width="380" alt="MLflow Agentic Planning"/><br/><sub>MLflow Agentic Planning</sub></td>
+<td width="50%"></td>
+</tr>
+</table>
+
+---
+
 ## 🌟 Key Features
 
 ### 🤖 Agentic AI System
